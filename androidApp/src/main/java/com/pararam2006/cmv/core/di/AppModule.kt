@@ -9,12 +9,8 @@ import org.koin.dsl.module
 val appModule = module {
     single(named("AppScope")) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     includes(
-        viewModelModule,
-        repositoryModule,
-        useCaseModule,
-        databaseModule,
-        managerModule,
+        sharedModule,
+        androidSharedModule,
         settingsModule,
-        stateHolderModule,
     )
 }

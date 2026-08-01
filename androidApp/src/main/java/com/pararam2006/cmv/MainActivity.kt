@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestNotificationPermission()
         setContent {
-            RootNavGraph()
+            RootNavGraph(appVersion = BuildConfig.VERSION_NAME)
         }
     }
 

@@ -1,0 +1,77 @@
+<resources>
+    <string name="app_name">Custom Music Volume</string>
+
+    <string name="bottom_navbar_main">Треки</string>
+    <string name="bottom_navbar_main_icon_desc">Треки</string>
+    <string name="bottom_navbar_settings">Настройки</string>
+    <string name="bottom_navbar_about">О приложении</string>
+    <string name="bottom_navbar_about_icon_desc">О приложении</string>
+
+    <string name="main_screen_title">Треки</string>
+    <string name="main_screen_empty">Слушайте музыку в наушниках, регулируйте громкость, и приложение это запомнит\n(если вы не забыли включить сервис кнопкой справа вверху, конечно)</string>
+    <string name="main_screen_redacting_dialog_title">Изменить правило</string>
+    <string name="main_screen_add_dialog_title">Добавить правило</string>
+    <string name="main_screen_dialog_track_name_label">Название трека</string>
+    <string name="main_screen_dialog_artist_label">Артист (необязательно)</string>
+    <string name="main_screen_dialog_offset_label">Изменение в %</string>
+    <string name="main_screen_redacting_dialog_save_label">Обновить</string>
+    <string name="main_screen_add_dialog_save_label">Сохранить</string>
+    <string name="main_screen_add_dialog_dismiss_label">Отмена</string>
+    <string name="main_screen_disable_service_desc">Выключить сервис</string>
+    <string name="main_screen_enable_service_desc">Включить сервис</string>
+    <string name="main_screen_service_enabling_desc">Включение сервиса…</string>
+    <string name="main_screen_settings_button_desc">Открыть настройки</string>
+    <string name="main_screen_create_volume_by_self_desc">Добавить громкость вручную</string>
+    <string name="main_screen_search_desc">Найти громкость</string>
+    <string name="main_screen_close_search_desc">Завершить поиск</string>
+    <string name="main_screen_navigate_back_desc">Назад</string>
+    <string name="main_screen_search_placeholder">Название трека</string>
+    <string name="main_screen_offset_text_louder">Громче на</string>
+    <string name="main_screen_offset_text_quiet">Тише на</string>
+    <string name="main_screen_without_offset_text">Без изменения громкости</string>
+    <string name="main_screen_no_headphones_title">Наушников не видно…</string>
+    <string name="main_screen_no_headphones_text">Обучение и регулировка работает только при подключенной гарнитуре, но без неё вы все еще сможете добавлять громкость для треков вручную.</string>
+    <string name="main_screen_ok">ОК</string>
+
+    <string name="settings_screen_title">Настройки</string>
+    <string name="settings_screen_show_volume_ui">Показывать громкость при\nприменении правила</string>
+    <string name="settings_screen_change_workmode_button_desc">К экрану переключения режима работы</string>
+    <string name="settings_screen_apps_button_desc">Выбрать приложения</string>
+
+    <string name="listener_error_screen_title">Упс! Сервис сломался</string>
+    <string name="listener_error_screen_main_text">Сервис не может запуститься. Выдайте разрешение на чтение уведомлений заново</string>
+    <string name="listener_error_screen_to_settings_button">К настройкам</string>
+    <string name="listener_error_screen_to_main_button">Вернуться на главную</string>
+
+    <string name="unknown_screen_title">Неизвестный экран</string>
+
+    <string name="about_screen_title">О приложении</string>
+    <string name="about_screen_description">Это приложение позволяет вам устанавливать индивидуальный уровень громкости для каждого музыкального трека. Оно автоматически запоминает ваши предпочтения и восстанавливает их при следующем включении песни.</string>
+    <string name="about_faq_title">Часто задаваемые вопросы (FAQ)</string>
+    <string name="about_faq_q1">Как работает автообучение?</string>
+    <string name="about_faq_a1">Если вы измените громкость в течение первых 15 секунд воспроизведения (время настраивается), приложение запомнит разницу между текущим уровнем и базовой громкостью системы. В следующий раз при запуске этого трека громкость будет скорректирована автоматически.</string>
+    <string name="about_faq_q2">Сильно ли приложение ест батарею?</string>
+    <string name="about_faq_a2">Приложение оптимизировано и потребляет мало энергии. Активная логика срабатывает только в моменты смены трека или изменения громкости, остальное время сервис находится в режиме ожидания.</string>
+    <string name="about_faq_q3">Как сбросить настройки для песни?</string>
+    <string name="about_faq_a3">На главном экране отображается список всех известных треков. Вы можете нажать на трек для редактирования или на корзину для удаления правила. Если удалить правило, громкость для этого трека перестанет меняться автоматически.</string>
+    <string name="about_faq_q4">Зачем нужен доступ к уведомлениям?</string>
+    <string name="about_faq_a4">Приложению необходимо получать информацию о текущем воспроизведении (название трека и артиста), чтобы применять сохраненные настройки. Слушатель уведомлений — это стандартный способ Android для доступа к метаданным медиаплееров.</string>
+    <string name="about_faq_q5">Зачем нужно разрешение на показ уведомлений?</string>
+    <string name="about_faq_a5">Это разрешение нужно, чтобы в шторке уведомлений отображалось уведомление с состоянием сервиса.</string>
+
+    <string name="change_mode_screen_title">Смена режима работы</string>
+    <string name="change_mode_screen_learning_title">Обучение</string>
+    <string name="change_mode_screen_learning_desc">В режиме обучения приложение создает новые правила для треков и применяет их.</string>
+    <string name="change_mode_screen_just_changing_title">Регулировка</string>
+    <string name="change_mode_screen_just_changing_desc">В режиме регулировки приложение не создает новые правила для треков - только применяет.</string>
+
+    <string name="select_apps_screen_title">Выбор приложений</string>
+    <string name="select_apps_screen_empty">На этой платформе приложения для выбора не найдены</string>
+    <string name="select_apps_screen_load_error">Не удалось загрузить список приложений</string>
+    <string name="select_apps_screen_retry">Повторить</string>
+
+    <string name="permission_warning_screen_notification_access_required">Нужен доступ к уведомлениям</string>
+    <string name="permission_warning_screen_already_granted">Уже выдано</string>
+    <string name="permission_warning_screen_grant_permission">Выдать разрешение</string>
+    <string name="permission_warning_screen_notifications_access_desc">Приложению необходимо получать информацию о текущем воспроизведении (название трека и артиста), чтобы применять сохраненные настройки. Слушатель уведомлений — это стандартный способ Android для доступа к метаданным медиаплееров.</string>
+</resources>
