@@ -4,9 +4,11 @@ import com.pararam2006.cmv.domain.model.TrackVolume
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
 import com.pararam2006.cmv.domain.usecase.SaveTrackVolumeUseCase
 import com.pararam2006.cmv.domain.model.AppMode
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -141,6 +143,42 @@ class VolumeLearningManagerImplTest {
 
         assertFalse(manager.debugState.value.hasLearnedOffsetChanged)
         assertTrue(repository.tracks.value.isEmpty())
+    }
+
+    @Test
+    fun appliesLoadedOffsetWhenHeadphonesBecomeAvailableAfterMetadata() = runTest {
+        val manager = VolumeLearningManagerImpl(
+            saveTrackVolumeUseCase = SaveTrackVolumeUseCase(FakeTrackVolumeRepository()),
+            appModeFlow = MutableStateFlow(AppMode.LEARNING),
+            learningTimeSeconds = { 15 },
+            scope = backgroundScope,
+            nowMillis = { 1_000L },
+        )
+        runCurrent()
+
+        manager.onPlaybackStateChanged(true)
+        manager.onTrackChanged(
+            title = "Track",
+            artist = "Artist",
+            offsetFromDb = 1.25f,
+            currentSystemVolume = 40,
+            maxVolume = 100,
+            trackGeneration = 4,
+        )
+        runCurrent()
+        assertEquals(-1, manager.debugState.value.expectedProgrammaticVolume)
+
+        val command = async { manager.volumeCommands.first() }
+        manager.onHeadsetStateChanged(true)
+        runCurrent()
+
+        assertEquals(50, command.await().targetVolume)
+        assertEquals(50, manager.debugState.value.expectedProgrammaticVolume)
+
+        manager.onVolumeChanged(50)
+        runCurrent()
+        assertEquals(-1, manager.debugState.value.expectedProgrammaticVolume)
+        assertFalse(manager.debugState.value.hasLearnedOffsetChanged)
     }
 
     private class FakeTrackVolumeRepository : TrackVolumeRepository {

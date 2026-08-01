@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -10,6 +11,7 @@ dependencies {
     implementation(project(":shared"))
 
     implementation(compose.desktop.currentOs)
+    implementation(libs.compose.components.resources)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.compose.navigation)
@@ -27,8 +29,29 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.pararam2006.cmv"
-            packageVersion = "1.1.0"
+            modules("jdk.security.auth")
+            packageName = "Custom Music Volume"
+            packageVersion = "1.1.4"
+            description = "Learns and applies per-track system volume on selected media players"
+            vendor = "Custom Music Volume"
+
+            linux {
+                shortcut = true
+                packageName = "custom-music-volume"
+                appCategory = "AudioVideo"
+                menuGroup = "AudioVideo"
+                debMaintainer = "Andrey"
+                iconFile.set(project.file("../androidApp/src/main/ic_launcher-playstore.png"))
+            }
         }
+    }
+}
+
+tasks.withType<AbstractJPackageTask>().configureEach {
+    if (targetFormat == TargetFormat.Deb) {
+        freeArgs.addAll(
+            "--linux-package-deps",
+            "libpulse0,wireplumber",
+        )
     }
 }

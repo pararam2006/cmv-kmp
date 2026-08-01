@@ -61,17 +61,17 @@ fun SliderWithButtons(
         }
     }
 
-    if (leftIsPressed) {
-        println("Слыш, отпусти слева!")
-    } else {
-        println("А ну нажал обратно слева")
-    }
-
-    if (rightIsPressed) {
-        println("Слыш, отпусти справа!")
-    } else {
-        println("А ну нажал обратно справа")
-    }
+//    if (leftIsPressed) {
+//        println("Слыш, отпусти слева!")
+//    } else {
+//        println("А ну нажал обратно слева")
+//    }
+//
+//    if (rightIsPressed) {
+//        println("Слыш, отпусти справа!")
+//    } else {
+//        println("А ну нажал обратно справа")
+//    }
 
 
     Row(

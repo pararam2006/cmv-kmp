@@ -29,6 +29,8 @@ googleFirebaseCrashlytics = "3.0.7"
 coil = "3.5.0"
 timber = "5.0.1"
 datastorePreferences = "1.1.6"
+dbusJava = "5.2.0"
+jna = "5.18.1"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -75,6 +77,9 @@ firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashly
 coil = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
+dbus-java-core = { module = "com.github.hypfvieh:dbus-java-core", version.ref = "dbusJava" }
+dbus-java-transport-native-unixsocket = { module = "com.github.hypfvieh:dbus-java-transport-native-unixsocket", version.ref = "dbusJava" }
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 
 compose-navigation = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
 compose-lifecycleRuntime = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }

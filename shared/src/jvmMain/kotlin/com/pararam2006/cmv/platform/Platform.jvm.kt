@@ -4,26 +4,38 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import com.pararam2006.cmv.data.manager.VolumeLearningManagerImpl
+import com.pararam2006.cmv.domain.manager.VolumeLearningManager
 import com.pararam2006.cmv.domain.model.AppInfo
 import com.pararam2006.cmv.domain.model.AppMode
 import com.pararam2006.cmv.domain.model.TrackVolume
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
 import com.pararam2006.cmv.domain.repository.HeadphonesRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
+import com.pararam2006.cmv.domain.service.PlaybackTrackingCoordinator
+import com.pararam2006.cmv.platform.linux.LinuxAudioController
+import com.pararam2006.cmv.platform.linux.LinuxMprisPlaybackMonitor
+import com.pararam2006.cmv.platform.linux.LinuxPlaybackTrackingRuntime
 import java.awt.Desktop
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.prefs.Preferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 private object DesktopPreferenceKeys {
@@ -79,10 +91,14 @@ actual class SettingsPreferences {
     }.getOrDefault(AppMode.LEARNING)
 }
 
-actual class SystemService {
-    actual fun isNotificationServiceSupported(): Boolean = false
-    actual fun isNotificationServiceEnabled(): Boolean = false
-    actual fun toggleService(isOn: Boolean): Boolean = true
+actual class SystemService internal constructor(
+    private val playbackRuntime: PlaybackTrackingRuntime = UnsupportedPlaybackTrackingRuntime,
+) {
+    actual fun isNotificationServiceSupported(): Boolean = playbackRuntime.isSupported
+    actual fun isNotificationServiceEnabled(): Boolean = playbackRuntime.isSupported
+    actual fun toggleService(isOn: Boolean): Boolean =
+        if (isOn) playbackRuntime.stop() else playbackRuntime.start()
+
     actual fun openNotificationSettings() = Unit
 
     actual fun searchWeb(query: String) {
@@ -95,6 +111,18 @@ actual class SystemService {
     }
 }
 
+private object UnsupportedPlaybackTrackingRuntime : PlaybackTrackingRuntime {
+    override val state: StateFlow<PlaybackRuntimeState> = MutableStateFlow(
+        PlaybackRuntimeState(
+            status = PlaybackRuntimeStatus.UNAVAILABLE,
+            message = "Playback tracking runtime was not configured",
+        ),
+    )
+    override val isSupported: Boolean = false
+    override fun start(): Boolean = false
+    override fun stop(): Boolean = true
+}
+
 actual fun isDynamicColorAvailable(): Boolean = false
 
 @Composable
@@ -104,13 +132,65 @@ actual fun dynamicLightColorScheme(): ColorScheme = lightColorScheme()
 actual fun dynamicDarkColorScheme(): ColorScheme = darkColorScheme()
 
 val jvmPlatformModule = module {
+    single(named("AppScope")) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     single { SettingsPreferences() }
-    single { SystemService() }
     single<TrackVolumeRepository> { PersistentTrackVolumeRepository() }
     single<AppsInfoRepository> { PersistentAppsInfoRepository() }
-    single<HeadphonesRepository> { DesktopHeadphonesRepository() }
-    single<AppDiscoveryService> { DesktopAppDiscoveryService() }
+    single {
+        LinuxMprisPlaybackMonitor(
+            scope = get(named("AppScope")),
+            logger = ::desktopLog,
+        )
+    }
+    single<MediaPlaybackMonitor> { get<LinuxMprisPlaybackMonitor>() }
+    single {
+        LinuxAudioController(
+            scope = get(named("AppScope")),
+            logger = ::desktopLog,
+        )
+    }
+    single<SystemVolumeController> { get<LinuxAudioController>() }
+    single<AudioRouteMonitor> { get<LinuxAudioController>() }
+    single<HeadphonesRepository> {
+        DesktopHeadphonesRepository(get(), get(named("AppScope")))
+    }
+    single<AppDiscoveryService> { DesktopAppDiscoveryService(get(), get()) }
+    single<VolumeLearningManager> {
+        val settings = get<SettingsPreferences>()
+        VolumeLearningManagerImpl(
+            saveTrackVolumeUseCase = get(),
+            appModeFlow = settings.appModeFlow,
+            learningTimeSeconds = { settings.learningTimeSeconds },
+            scope = get(named("AppScope")),
+            nowMillis = System::currentTimeMillis,
+            logger = ::desktopLog,
+        )
+    }
+    single {
+        PlaybackTrackingCoordinator(
+            appsInfoRepository = get(),
+            trackVolumeRepository = get(),
+            volumeLearningManager = get(),
+            scope = get(named("AppScope")),
+            logger = ::desktopLog,
+        )
+    }
+    single<PlaybackTrackingRuntime> {
+        LinuxPlaybackTrackingRuntime(
+            scope = get(named("AppScope")),
+            playbackMonitor = get(),
+            volumeController = get(),
+            routeMonitor = get(),
+            appsInfoRepository = get(),
+            coordinator = get(),
+            serviceStateHolder = get(),
+            logger = ::desktopLog,
+        )
+    }
+    single { SystemService(get()) }
 }
+
+private fun desktopLog(message: String) = println("[CMV] $message")
 
 private class PersistentTrackVolumeRepository : TrackVolumeRepository {
     private val mutex = Mutex()
@@ -221,12 +301,36 @@ private class PersistentAppsInfoRepository : AppsInfoRepository {
     }.getOrDefault(emptyList())
 }
 
-private class DesktopHeadphonesRepository : HeadphonesRepository {
+private class DesktopHeadphonesRepository(
+    private val routeMonitor: AudioRouteMonitor,
+    scope: CoroutineScope,
+) : HeadphonesRepository {
     private val headsetState = MutableSharedFlow<Boolean>(replay = 1).apply { tryEmit(false) }
     override val isHeadsetFlow: SharedFlow<Boolean> = headsetState
-    override fun computeIsHeadsetConnected(): Boolean = false
+
+    init {
+        scope.launch {
+            routeMonitor.route.collect { route ->
+                headsetState.emit(route?.isHeadphones == true)
+            }
+        }
+    }
+
+    override fun computeIsHeadsetConnected(): Boolean =
+        routeMonitor.route.value?.isHeadphones == true
 }
 
-private class DesktopAppDiscoveryService : AppDiscoveryService {
-    override suspend fun discoverApps(): List<AppInfo> = emptyList()
+private class DesktopAppDiscoveryService(
+    private val playbackMonitor: MediaPlaybackMonitor,
+    private val appsInfoRepository: AppsInfoRepository,
+) : AppDiscoveryService {
+    override suspend fun discoverApps(): List<AppInfo> {
+        runCatching { playbackMonitor.start() }
+            .onFailure { desktopLog("MPRIS discovery unavailable: ${it.message}") }
+        val observedApps = playbackMonitor.players.value.map { it.app }
+        val savedApps = appsInfoRepository.getAllAppsInfo().first()
+        return (observedApps + savedApps)
+            .distinctBy { it.packageName }
+            .sortedBy { it.label.lowercase() }
+    }
 }

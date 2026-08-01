@@ -54,6 +54,9 @@ kotlin {
             implementation(libs.koin.compose.viewmodel)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.datastore.preferences)
+            implementation(libs.dbus.java.core)
+            implementation(libs.jna)
+            runtimeOnly(libs.dbus.java.transport.native.unixsocket)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)

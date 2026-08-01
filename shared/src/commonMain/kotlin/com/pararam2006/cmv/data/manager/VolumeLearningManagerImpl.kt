@@ -290,6 +290,7 @@ class VolumeLearningManagerImpl(
     private suspend fun handlePlaybackStateChanged(event: LearningEvent.PlaybackChanged) {
         val now = nowMillis()
         val isPlaying = event.isPlaying
+        val wasPlaying = state.value.isPlaying
 
         updateState("onPlaybackStateChanged", "isPlaying=$isPlaying") { currentState ->
             if (currentState.isPlaying == isPlaying) return@updateState currentState
@@ -310,6 +311,7 @@ class VolumeLearningManagerImpl(
         }
 
         if (isPlaying) {
+            if (!wasPlaying) emitCurrentRuleIfReady("playback resumed")
             events.trySend(LearningEvent.SaveTimerStart)
         } else {
             // На паузе таймеры сохранения сбрасываем, но пробуем сохранить накопленное
@@ -319,7 +321,7 @@ class VolumeLearningManagerImpl(
     }
 
     override fun onHeadsetStateChanged(isConnected: Boolean) {
-        logLifecycle("isConnected=$isConnected")
+        logLifecycle("headsetConnected=$isConnected")
         events.trySend(LearningEvent.HeadsetChanged(isConnected))
     }
 
@@ -460,14 +462,51 @@ class VolumeLearningManagerImpl(
     }
 
     private fun handleHeadsetStateChanged(isConnected: Boolean) {
+        val wasConnected = state.value.isHeadsetConnected
         updateState("onHeadsetStateChanged", "isConnected=$isConnected") {
             it.copy(isHeadsetConnected = isConnected)
         }
+        if (isConnected && !wasConnected) emitCurrentRuleIfReady("headphones connected")
     }
 
     private fun handleAudioFocusChanged(hasFocus: Boolean) {
+        val hadFocus = state.value.hasAudioFocus
         updateState("onAudioFocusChanged", "hasFocus=$hasFocus") {
             it.copy(hasAudioFocus = hasFocus)
+        }
+        if (hasFocus && !hadFocus) emitCurrentRuleIfReady("audio focus restored")
+    }
+
+    private fun emitCurrentRuleIfReady(trigger: String) {
+        val currentState = state.value
+        val title = currentState.currentTrackTitle ?: return
+        if (currentState.baseVolume < 0 || currentState.trackGeneration <= 0) return
+
+        val targetVolume = calculateExpectedVolume(
+            base = currentState.baseVolume,
+            offsetRatio = currentState.currentLearnedOffset,
+            max = currentState.maxVolume,
+            canApplyRule = currentState.isHeadsetConnected &&
+                currentState.hasAudioFocus &&
+                currentState.isPlaying,
+        )
+        if (targetVolume == -1) return
+
+        val command = VolumeCommand(
+            targetVolume = targetVolume,
+            trackTitle = title,
+            trackArtist = currentState.currentTrackArtist,
+            trackGeneration = currentState.trackGeneration,
+        )
+        updateState("applyCurrentRule", "trigger=$trigger, target=$targetVolume") {
+            it.copy(expectedProgrammaticVolume = targetVolume)
+        }
+        logDebug(
+            "volumeCommand: emit target=$targetVolume, " +
+                "generation=${currentState.trackGeneration}, trigger=$trigger",
+        )
+        if (volumeCommandChannel.trySend(command).isFailure) {
+            logDebug("volumeCommand: failed to enqueue generation=${currentState.trackGeneration}")
         }
     }
 
