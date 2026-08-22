@@ -37,6 +37,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onNavigateToChangeMode: () -> Unit,
     onNavigateToApps: () -> Unit,
+    onNavigateToDebug: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
 
@@ -111,6 +112,25 @@ fun SettingsScreen(
                         Icon(
                             painter = painterResource(Res.drawable.outline_arrow_forward_24),
                             contentDescription = stringResource(Res.string.settings_screen_apps_button_desc)
+                        )
+                    }
+                },
+            )
+        }
+
+        SettingsCard(
+            modifier = Modifier.clickable(onClick = onNavigateToDebug)
+        ) {
+            SettingsItem(
+                title = stringResource(Res.string.settings_screen_debug),
+                trailingContent = { trailingModifier ->
+                    IconButton(
+                        onClick = onNavigateToDebug,
+                        modifier = trailingModifier,
+                    ) {
+                        Icon(
+                            painter = painterResource(Res.drawable.outline_arrow_forward_24),
+                            contentDescription = stringResource(Res.string.settings_screen_debug_button_desc),
                         )
                     }
                 },

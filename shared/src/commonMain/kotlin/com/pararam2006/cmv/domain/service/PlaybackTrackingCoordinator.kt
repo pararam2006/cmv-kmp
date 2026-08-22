@@ -4,8 +4,10 @@ import com.pararam2006.cmv.domain.manager.VolumeCommand
 import com.pararam2006.cmv.domain.manager.VolumeLearningManager
 import com.pararam2006.cmv.domain.manager.VolumeState
 import com.pararam2006.cmv.domain.model.AppInfo
+import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
+import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -28,7 +30,7 @@ private sealed interface TrackingEvent {
     data class PlaybackChanged(val isPlaying: Boolean) : TrackingEvent
     data class HeadsetChanged(val isConnected: Boolean) : TrackingEvent
     data class VolumeChanged(
-        val newVolume: Int,
+        val systemVolume: SystemVolumeSnapshot,
         val isHeadset: Boolean,
         val hasAudioFocus: Boolean,
     ) : TrackingEvent
@@ -36,8 +38,7 @@ private sealed interface TrackingEvent {
     data class TrackMetadataChanged(
         val title: String?,
         val artist: String?,
-        val currentSystemVolume: Int,
-        val maxVolume: Int,
+        val systemVolume: SystemVolumeSnapshot,
         val hasAudioFocus: Boolean,
     ) : TrackingEvent
 
@@ -104,13 +105,13 @@ class PlaybackTrackingCoordinator(
     }
 
     fun onVolumeChanged(
-        newVolume: Int,
+        systemVolume: SystemVolumeSnapshot,
         isHeadset: Boolean,
         hasAudioFocus: Boolean,
     ) {
         enqueue(
             TrackingEvent.VolumeChanged(
-                newVolume = newVolume,
+                systemVolume = systemVolume,
                 isHeadset = isHeadset,
                 hasAudioFocus = hasAudioFocus,
             ),
@@ -120,16 +121,14 @@ class PlaybackTrackingCoordinator(
     fun onTrackMetadataChanged(
         title: String?,
         artist: String?,
-        currentSystemVolume: Int,
-        maxVolume: Int,
+        systemVolume: SystemVolumeSnapshot,
         hasAudioFocus: Boolean,
     ) {
         enqueue(
             TrackingEvent.TrackMetadataChanged(
                 title = title,
                 artist = artist,
-                currentSystemVolume = currentSystemVolume,
-                maxVolume = maxVolume,
+                systemVolume = systemVolume,
                 hasAudioFocus = hasAudioFocus,
             ),
         )
@@ -212,7 +211,7 @@ class PlaybackTrackingCoordinator(
 
         volumeLearningManager.onHeadsetStateChanged(event.isHeadset)
         volumeLearningManager.onAudioFocusChanged(event.hasAudioFocus)
-        volumeLearningManager.onVolumeChanged(event.newVolume)
+        volumeLearningManager.onVolumeChanged(event.systemVolume)
     }
 
     private suspend fun handleTrackMetadataChanged(event: TrackingEvent.TrackMetadataChanged) {
@@ -226,27 +225,27 @@ class PlaybackTrackingCoordinator(
         val oldTrack = _currentTrack.value
         if (oldTrack?.title == title && oldTrack.artist == event.artist) return
 
-        val offset = trackVolumeRepository
-            .getTrackVolume(title, event.artist)
-            ?.volumeOffset
-            ?: 1f
+        val rule = trackVolumeRepository.getTrackVolume(title, event.artist)
+        val offset = rule?.volumeOffsetDb ?: 0f
+        val offsetModel = rule?.offsetModel ?: VolumeOffsetModel.DECIBEL
 
         trackGeneration += 1
         val newTrack = PlayingTrack(title, event.artist, trackGeneration)
         _currentTrack.value = newTrack
 
         logger(
-            "New track: title=$title, artist=${event.artist}, offset=$offset, " +
-                "volume=${event.currentSystemVolume}/${event.maxVolume}, " +
+            "New track: title=$title, artist=${event.artist}, " +
+                "offset=$offset/$offsetModel, volume=${event.systemVolume.currentVolumeDb}dB " +
+                "(${event.systemVolume.currentVolume}/${event.systemVolume.maxVolume}), " +
                 "focus=${event.hasAudioFocus}, generation=$trackGeneration",
         )
         volumeLearningManager.onAudioFocusChanged(event.hasAudioFocus)
         volumeLearningManager.onTrackChanged(
             title = title,
             artist = event.artist,
-            offsetFromDb = offset,
-            currentSystemVolume = event.currentSystemVolume,
-            maxVolume = event.maxVolume,
+            volumeOffset = offset,
+            offsetModel = offsetModel,
+            systemVolume = event.systemVolume,
             trackGeneration = trackGeneration,
         )
     }

@@ -31,7 +31,7 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             modules("jdk.security.auth")
             packageName = "Custom Music Volume"
-            packageVersion = "1.1.4"
+            packageVersion = "1.1.5"
             description = "Learns and applies per-track system volume on selected media players"
             vendor = "Custom Music Volume"
 

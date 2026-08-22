@@ -37,6 +37,10 @@
     <string name="settings_screen_show_volume_ui">Показывать громкость при\nприменении правила</string>
     <string name="settings_screen_change_workmode_button_desc">К экрану переключения режима работы</string>
     <string name="settings_screen_apps_button_desc">Выбрать приложения</string>
+    <string name="settings_screen_debug">Экран отладки</string>
+    <string name="settings_screen_debug_button_desc">Открыть экран отладки</string>
+
+    <string name="debug_screen_title">Экран отладки</string>
 
     <string name="listener_error_screen_title">Упс! Сервис сломался</string>
     <string name="listener_error_screen_main_text">Сервис не может запуститься. Выдайте разрешение на чтение уведомлений заново</string>

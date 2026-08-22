@@ -14,6 +14,6 @@ data class MainScreenUiState(
     val isTracksLoading: Boolean = true,
     val currentPlayingTrack: String? = null,
     val currentPlayingArtist: String? = null,
-    val offsetToNewTrack: Float = 1f,
+    val offsetToNewTrack: Float = 0f,
     val trackDeletionProgress: Map<Int, Float> = emptyMap(),
 )

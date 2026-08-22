@@ -4,6 +4,7 @@ import com.pararam2006.cmv.domain.usecase.*
 import com.pararam2006.cmv.core.service.ListenerServiceStateHolder
 import com.pararam2006.cmv.core.service.MyNotificationListenerServiceStateHolder
 import com.pararam2006.cmv.ui.changeMode.ChangeModeScreenViewModel
+import com.pararam2006.cmv.ui.debug.DebugScreenViewModel
 import com.pararam2006.cmv.ui.main.MainViewModel
 import com.pararam2006.cmv.ui.selectApps.SelectAppsScreenViewModel
 import com.pararam2006.cmv.ui.settings.SettingsViewModel
@@ -22,6 +23,7 @@ val viewModelModule = module {
     viewModelOf(::SettingsViewModel)
     viewModelOf(::ChangeModeScreenViewModel)
     viewModelOf(::SelectAppsScreenViewModel)
+    viewModelOf(::DebugScreenViewModel)
 }
 
 val serviceStateModule = module {

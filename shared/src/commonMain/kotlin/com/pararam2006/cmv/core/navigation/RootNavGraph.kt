@@ -59,6 +59,8 @@ import com.pararam2006.cmv.ui.Dimens
 import com.pararam2006.cmv.ui.about.AboutScreen
 import com.pararam2006.cmv.ui.changeMode.ChangeModeScreen
 import com.pararam2006.cmv.ui.changeMode.ChangeModeScreenViewModel
+import com.pararam2006.cmv.ui.debug.DebugScreen
+import com.pararam2006.cmv.ui.debug.DebugScreenViewModel
 import com.pararam2006.cmv.ui.listenerError.ListenerErrorScreen
 import com.pararam2006.cmv.ui.main.MainScreen
 import com.pararam2006.cmv.ui.main.MainViewModel
@@ -128,6 +130,7 @@ fun RootNavGraph(appVersion: String) {
         currentDestination?.hasRoute<Route.About>() == true -> stringResource(Res.string.about_screen_title)
         currentDestination?.hasRoute<Route.ChangeMode>() == true -> stringResource(Res.string.change_mode_screen_title)
         currentDestination?.hasRoute<Route.SelectApps>() == true -> stringResource(Res.string.select_apps_screen_title)
+        currentDestination?.hasRoute<Route.Debug>() == true -> stringResource(Res.string.debug_screen_title)
         else -> stringResource(Res.string.unknown_screen_title)
     }
 
@@ -258,7 +261,8 @@ fun RootNavGraph(appVersion: String) {
                             onSetShowSystemVolumeUi = settingsScreenViewModel::setShowSystemVolumeUi,
                             onSliderPositionChange = settingsScreenViewModel::changeSliderPositionState,
                             onNavigateToApps = { navController.navigate(Route.SelectApps) },
-                            onNavigateToChangeMode = { navController.navigate(Route.ChangeMode) }
+                            onNavigateToChangeMode = { navController.navigate(Route.ChangeMode) },
+                            onNavigateToDebug = { navController.navigate(Route.Debug) },
                         )
                     }
 
@@ -298,6 +302,13 @@ fun RootNavGraph(appVersion: String) {
                             onRetry = vm::retry,
                             onToogle = vm::toogleApp,
                         )
+                    }
+
+                    composable<Route.Debug> {
+                        val vm = koinViewModel<DebugScreenViewModel>()
+                        val uiState by vm.uiState.collectAsState()
+
+                        DebugScreen(uiState = uiState)
                     }
                 }
             }

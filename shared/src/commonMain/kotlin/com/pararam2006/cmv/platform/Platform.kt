@@ -28,3 +28,5 @@ expect fun isDynamicColorAvailable(): Boolean
 expect fun dynamicLightColorScheme(): ColorScheme
 @Composable
 expect fun dynamicDarkColorScheme(): ColorScheme
+
+expect fun currentTimeMillis(): Long

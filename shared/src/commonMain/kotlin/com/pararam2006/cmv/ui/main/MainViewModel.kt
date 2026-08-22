@@ -132,13 +132,18 @@ class MainViewModel(
         _mainScreenUiState.update {
             it.copy(
                 showAddDialog = false,
-                offsetToNewTrack = 1f, // Новая громкость сбрасывается при закрытии диалога
+                offsetToNewTrack = 0f,
             )
         }
     }
 
     fun startEdit(track: TrackVolume) {
-        _mainScreenUiState.update { it.copy(showEditDialog = true, dialogTrack = track) }
+        _mainScreenUiState.update {
+            val editableTrack = if (track.offsetModel == com.pararam2006.cmv.domain.model.VolumeOffsetModel.DECIBEL) {
+                track
+            } else track.copy(volumeOffsetDb = 0f)
+            it.copy(showEditDialog = true, dialogTrack = editableTrack)
+        }
     }
 
     private var incrementJob: Job? = null
@@ -148,10 +153,10 @@ class MainViewModel(
             while (true) {
                 val currentOffset = when {
                     _mainScreenUiState.value.showAddDialog -> _mainScreenUiState.value.offsetToNewTrack
-                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffset
+                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
                     else -> null
                 }
-                changeEditOffset(offset = (currentOffset ?: 1f) + Constants.DIALOG_OFFSET_STEP)
+                changeEditOffset(offset = (currentOffset ?: 0f) + Constants.DIALOG_OFFSET_STEP)
                 delay(Constants.TINY_DELAY.milliseconds)
             }
         }
@@ -170,10 +175,10 @@ class MainViewModel(
             while (true) {
                 val currentOffset = when {
                     _mainScreenUiState.value.showAddDialog -> _mainScreenUiState.value.offsetToNewTrack
-                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffset
+                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
                     else -> null
                 }
-                changeEditOffset(offset = (currentOffset ?: 1f) - Constants.DIALOG_OFFSET_STEP)
+                changeEditOffset(offset = (currentOffset ?: 0f) - Constants.DIALOG_OFFSET_STEP)
                 delay(Constants.TINY_DELAY.milliseconds)
             }
         }
@@ -192,10 +197,11 @@ class MainViewModel(
     }
 
     fun changeEditOffset(offset: Float) {
+        val boundedOffset = offset.coerceIn(Constants.VOLUME_SLIDER_VALUE_RANGE)
         _mainScreenUiState.update {
             when {
-                it.showAddDialog -> it.copy(offsetToNewTrack = offset)
-                it.showEditDialog -> it.copy(dialogTrack = it.dialogTrack?.copy(volumeOffset = offset))
+                it.showAddDialog -> it.copy(offsetToNewTrack = boundedOffset)
+                it.showEditDialog -> it.copy(dialogTrack = it.dialogTrack?.copy(volumeOffsetDb = boundedOffset))
                 else -> it
             }
         }
@@ -229,7 +235,7 @@ class MainViewModel(
                 id = id,
                 title = title,
                 artist = artist,
-                offset = offset
+                offsetDb = offset
             )
         }
     }

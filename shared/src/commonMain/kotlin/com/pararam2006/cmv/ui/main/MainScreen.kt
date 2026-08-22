@@ -198,7 +198,7 @@ private fun MainScreenDialogs(
 
     if (uiState.showEditDialog) {
         val editingTrack = uiState.dialogTrack
-        val roundedOffset = ((editingTrack?.volumeOffset ?: 1f) * 100).roundToInt() / 100f
+        val roundedOffset = ((editingTrack?.volumeOffsetDb ?: 0f) * 2).roundToInt() / 2f
 
         TrackDialog(
             initialTitle = editingTrack?.trackTitle ?: "",

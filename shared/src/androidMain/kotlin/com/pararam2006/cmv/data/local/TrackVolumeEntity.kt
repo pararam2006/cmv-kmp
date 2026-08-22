@@ -9,4 +9,5 @@ data class TrackVolumeEntity(
     val trackTitle: String,
     val artistName: String?,
     val volumeOffset: Float,
+    val offsetModel: String,
 )

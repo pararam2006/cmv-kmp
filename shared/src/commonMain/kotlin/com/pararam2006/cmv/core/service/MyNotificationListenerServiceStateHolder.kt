@@ -1,6 +1,9 @@
 package com.pararam2006.cmv.core.service
 
 import com.pararam2006.cmv.domain.model.AppInfo
+import com.pararam2006.cmv.platform.AudioRouteSnapshot
+import com.pararam2006.cmv.platform.PlaybackRuntimeState
+import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +18,9 @@ interface ListenerServiceStateHolder {
     fun setActiveSessionPackageName(activeSessionPackageName: String?)
     fun setCurrentTrackTitle(new: String?)
     fun setCurrentTrackArtist(new: String?)
+    fun setAudioRoute(route: AudioRouteSnapshot?)
+    fun setSystemVolume(volume: SystemVolumeSnapshot?)
+    fun setRuntimeState(state: PlaybackRuntimeState)
     fun setStarting(isStarting: Boolean)
     fun setRestartResult(result: Boolean?)
     fun clearState()
@@ -54,6 +60,18 @@ class MyNotificationListenerServiceStateHolder : ListenerServiceStateHolder {
         _myNotificationListenerServiceState.update {
             it.copy(currentTrackArtist = new)
         }
+    }
+
+    override fun setAudioRoute(route: AudioRouteSnapshot?) {
+        _myNotificationListenerServiceState.update { it.copy(audioRoute = route) }
+    }
+
+    override fun setSystemVolume(volume: SystemVolumeSnapshot?) {
+        _myNotificationListenerServiceState.update { it.copy(systemVolume = volume) }
+    }
+
+    override fun setRuntimeState(state: PlaybackRuntimeState) {
+        _myNotificationListenerServiceState.update { it.copy(runtimeState = state) }
     }
 
     override fun setStarting(isStarting: Boolean) {

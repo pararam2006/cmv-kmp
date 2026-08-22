@@ -46,17 +46,17 @@ class LinuxPlaybackTrackingRuntime(
 
     override fun start(): Boolean = synchronized(lifecycleLock) {
         if (!isSupported) {
-            _state.value = PlaybackRuntimeState(
+            updateRuntimeState(PlaybackRuntimeState(
                 status = PlaybackRuntimeStatus.UNAVAILABLE,
                 message = "Playback tracking is currently implemented only for Linux",
-            )
+            ))
             serviceStateHolder.setStarting(false)
             serviceStateHolder.setRestartResult(false)
             return@synchronized false
         }
         if (runtimeJob?.isActive == true) return@synchronized true
 
-        _state.value = PlaybackRuntimeState(PlaybackRuntimeStatus.STARTING)
+        updateRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STARTING))
         serviceStateHolder.setStarting(true)
         serviceStateHolder.setRestartResult(null)
         runtimeJob = scope.launch { runRuntime() }
@@ -69,7 +69,7 @@ class LinuxPlaybackTrackingRuntime(
         if (job == null) {
             serviceStateHolder.setConnected(false)
             serviceStateHolder.setStarting(false)
-            _state.value = PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED)
+            updateRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED))
             return@synchronized true
         }
         scope.launch {
@@ -89,10 +89,10 @@ class LinuxPlaybackTrackingRuntime(
             serviceStateHolder.setConnected(true)
             serviceStateHolder.setStarting(false)
             serviceStateHolder.setRestartResult(true)
-            _state.value = PlaybackRuntimeState(
+            updateRuntimeState(PlaybackRuntimeState(
                 status = PlaybackRuntimeStatus.RUNNING,
                 message = "Waiting for playback from a selected MPRIS application",
-            )
+            ))
             logger("Linux playback runtime started")
 
             coroutineScope {
@@ -116,10 +116,12 @@ class LinuxPlaybackTrackingRuntime(
             activeInstanceId = null
             coordinator.onServiceStopped()
             clearPlaybackState()
+            serviceStateHolder.setAudioRoute(null)
+            serviceStateHolder.setSystemVolume(null)
             serviceStateHolder.setConnected(false)
             serviceStateHolder.setStarting(false)
             if (_state.value.status != PlaybackRuntimeStatus.ERROR) {
-                _state.value = PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED)
+                updateRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED))
             }
             logger("Linux playback runtime stopped")
         }
@@ -127,11 +129,16 @@ class LinuxPlaybackTrackingRuntime(
 
     private fun reportRuntimeFailure(failure: Throwable) {
         logger("Linux playback runtime failed: ${failure.message}")
-        _state.value = PlaybackRuntimeState(
+        updateRuntimeState(PlaybackRuntimeState(
             status = PlaybackRuntimeStatus.ERROR,
             message = failure.message ?: "Unable to start Linux playback tracking",
-        )
+        ))
         serviceStateHolder.setRestartResult(false)
+    }
+
+    private fun updateRuntimeState(state: PlaybackRuntimeState) {
+        _state.value = state
+        serviceStateHolder.setRuntimeState(state)
     }
 
     private suspend fun collectSelectedApps() {
@@ -194,24 +201,27 @@ class LinuxPlaybackTrackingRuntime(
             coordinator.onTrackMetadataChanged(
                 title = player.trackTitle,
                 artist = player.trackArtist,
-                currentSystemVolume = currentVolume.currentVolume,
-                maxVolume = currentVolume.maxVolume,
+                systemVolume = currentVolume,
                 hasAudioFocus = isPlaying,
             )
         }
     }
 
     private suspend fun collectRouteChanges() {
-        routeMonitor.route.filterNotNull().collect { route ->
-            coordinator.onHeadsetStateChanged(route.isHeadphones)
+        routeMonitor.route.collect { route ->
+            serviceStateHolder.setAudioRoute(route)
+            if (route != null) {
+                coordinator.onHeadsetStateChanged(route.isHeadphones)
+            }
         }
     }
 
     private suspend fun collectVolumeChanges() {
         volumeController.volume.filterNotNull().collect { volume ->
+            serviceStateHolder.setSystemVolume(volume)
             val player = currentActivePlayer()
             coordinator.onVolumeChanged(
-                newVolume = volume.currentVolume,
+                systemVolume = volume,
                 isHeadset = routeMonitor.route.value?.isHeadphones == true,
                 hasAudioFocus = player?.playbackStatus == PlaybackStatus.PLAYING,
             )
@@ -224,12 +234,12 @@ class LinuxPlaybackTrackingRuntime(
                 logger("Discarded stale Linux volume command for ${command.trackTitle}")
                 return@collect
             }
-            val before = volumeController.volume.value?.currentVolume
-            volumeController.setVolume(command.targetVolume)
-            val applied = volumeController.volume.value?.currentVolume
+            val before = volumeController.volume.value?.currentVolumeDb
+            volumeController.setVolumeDb(command.targetVolumeDb)
+            val applied = volumeController.volume.value?.currentVolumeDb
             logger(
                 "Applied Linux volume offset for ${command.trackTitle}: " +
-                    "$before -> $applied (target=${command.targetVolume})",
+                    "${before}dB -> ${applied}dB (target=${command.targetVolumeDb}dB)",
             )
         }
     }

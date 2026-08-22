@@ -16,4 +16,6 @@ sealed interface Route {
     object ChangeMode : Route
     @Serializable
     object SelectApps
+    @Serializable
+    object Debug : Route
 }

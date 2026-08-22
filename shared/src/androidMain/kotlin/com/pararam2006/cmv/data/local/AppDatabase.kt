@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
         TrackVolumeEntity::class,
         AppInfoEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

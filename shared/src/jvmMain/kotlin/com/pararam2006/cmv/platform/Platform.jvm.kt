@@ -131,6 +131,8 @@ actual fun dynamicLightColorScheme(): ColorScheme = lightColorScheme()
 @Composable
 actual fun dynamicDarkColorScheme(): ColorScheme = darkColorScheme()
 
+actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
 val jvmPlatformModule = module {
     single(named("AppScope")) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     single { SettingsPreferences() }

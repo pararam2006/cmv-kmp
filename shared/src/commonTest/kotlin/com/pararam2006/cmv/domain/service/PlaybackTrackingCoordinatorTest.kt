@@ -5,9 +5,11 @@ import com.pararam2006.cmv.domain.manager.VolumeLearningManager
 import com.pararam2006.cmv.domain.manager.VolumeState
 import com.pararam2006.cmv.domain.model.AppInfo
 import com.pararam2006.cmv.domain.model.TrackVolume
+import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
 import com.pararam2006.cmv.domain.model.AppMode
+import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -31,12 +33,12 @@ class PlaybackTrackingCoordinatorTest {
         )
 
         coordinator.onActiveSessionPackageNameChanged("other.app")
-        coordinator.onVolumeChanged(4, isHeadset = true, hasAudioFocus = true)
+        coordinator.onVolumeChanged(snapshot(4), isHeadset = true, hasAudioFocus = true)
         coordinator.onActiveSessionPackageNameChanged("selected.app")
-        coordinator.onVolumeChanged(7, isHeadset = true, hasAudioFocus = true)
+        coordinator.onVolumeChanged(snapshot(7), isHeadset = true, hasAudioFocus = true)
         coordinator.awaitIdle()
 
-        assertEquals(listOf(7), manager.volumeChanges)
+        assertEquals(listOf(7f), manager.volumeChanges)
     }
 
     @Test
@@ -46,7 +48,8 @@ class PlaybackTrackingCoordinatorTest {
             TrackVolume(
                 trackTitle = "Track",
                 artistName = "Artist",
-                volumeOffset = 1.25f,
+                volumeOffsetDb = 1.5f,
+                offsetModel = VolumeOffsetModel.DECIBEL,
             ),
         )
         val coordinator = PlaybackTrackingCoordinator(
@@ -59,12 +62,12 @@ class PlaybackTrackingCoordinatorTest {
         )
 
         coordinator.onActiveSessionPackageNameChanged("selected.app")
-        coordinator.onTrackMetadataChanged("Track", "Artist", 5, 15, true)
-        coordinator.onTrackMetadataChanged("Track", "Artist", 5, 15, true)
+        coordinator.onTrackMetadataChanged("Track", "Artist", snapshot(5), true)
+        coordinator.onTrackMetadataChanged("Track", "Artist", snapshot(5), true)
         coordinator.awaitIdle()
 
         assertEquals(1, manager.trackChanges.size)
-        assertEquals(1.25f, manager.trackChanges.single().offset)
+        assertEquals(1.5f, manager.trackChanges.single().offset)
     }
 
     @Test
@@ -80,7 +83,7 @@ class PlaybackTrackingCoordinatorTest {
         )
 
         coordinator.onActiveSessionPackageNameChanged("other.app")
-        coordinator.onTrackMetadataChanged("Track", "Artist", 5, 15, true)
+        coordinator.onTrackMetadataChanged("Track", "Artist", snapshot(5), true)
         coordinator.awaitIdle()
 
         assertEquals(0, manager.trackChanges.size)
@@ -99,22 +102,30 @@ class PlaybackTrackingCoordinatorTest {
         )
 
         coordinator.onActiveSessionPackageNameChanged("selected.app")
-        coordinator.onTrackMetadataChanged("Track", "Artist", 5, 15, true)
+        coordinator.onTrackMetadataChanged("Track", "Artist", snapshot(5), true)
         coordinator.onSessionDetached()
         coordinator.onActiveSessionPackageNameChanged("selected.app")
-        coordinator.onTrackMetadataChanged("Track", "Artist", 5, 15, true)
+        coordinator.onTrackMetadataChanged("Track", "Artist", snapshot(5), true)
         coordinator.awaitIdle()
 
         assertEquals(2, manager.trackChanges.size)
         assertEquals(1, manager.sessionDetachCount)
     }
 
+    private fun snapshot(volume: Int, maxVolume: Int = 15): SystemVolumeSnapshot =
+        SystemVolumeSnapshot(
+            currentVolume = volume,
+            maxVolume = maxVolume,
+            isMuted = false,
+            volumeDbByStep = List(maxVolume + 1) { it.toFloat() },
+        )
+
     private data class TrackChange(val title: String, val offset: Float)
 
     private class RecordingManager : VolumeLearningManager {
         override val volumeCommands = emptyFlow<VolumeCommand>()
         override val debugState: StateFlow<VolumeState> = MutableStateFlow(VolumeState())
-        val volumeChanges = mutableListOf<Int>()
+        val volumeChanges = mutableListOf<Float>()
         val trackChanges = mutableListOf<TrackChange>()
         var sessionDetachCount = 0
 
@@ -123,16 +134,16 @@ class PlaybackTrackingCoordinatorTest {
         override fun onTrackChanged(
             title: String,
             artist: String?,
-            offsetFromDb: Float,
-            currentSystemVolume: Int,
-            maxVolume: Int,
+            volumeOffset: Float,
+            offsetModel: VolumeOffsetModel,
+            systemVolume: SystemVolumeSnapshot,
             trackGeneration: Long,
         ) {
-            trackChanges += TrackChange(title, offsetFromDb)
+            trackChanges += TrackChange(title, volumeOffset)
         }
 
-        override fun onVolumeChanged(newVolume: Int) {
-            volumeChanges += newVolume
+        override fun onVolumeChanged(systemVolume: SystemVolumeSnapshot) {
+            volumeChanges += systemVolume.currentVolumeDb
         }
 
         override fun onPlaybackStateChanged(isPlaying: Boolean) = Unit

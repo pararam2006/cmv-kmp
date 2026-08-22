@@ -85,6 +85,12 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE track_volumes ADD COLUMN offsetModel TEXT NOT NULL DEFAULT 'LEGACY_RATIO'")
+    }
+}
+
 val databaseModule = module {
     single {
         Room.databaseBuilder(
@@ -96,6 +102,7 @@ val databaseModule = module {
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
+            MIGRATION_5_6,
         )
             .build()
     }

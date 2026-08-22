@@ -34,6 +34,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.qualifier.named
 import org.koin.core.context.startKoin
 import org.jetbrains.compose.resources.painterResource
+import kotlin.time.Duration.Companion.milliseconds
 
 fun main(args: Array<String>) {
     DesktopFileLogger.install()
@@ -64,7 +65,7 @@ fun main(args: Array<String>) {
 
             LaunchedEffect(instanceLock) {
                 while (true) {
-                    delay(INSTANCE_SIGNAL_POLL_MS)
+                    delay(INSTANCE_SIGNAL_POLL_MS.milliseconds)
                     val showRequested = withContext(Dispatchers.IO) {
                         instanceLock.consumeShowRequest()
                     }
@@ -115,7 +116,7 @@ fun main(args: Array<String>) {
                 },
                 title = "Custom Music Volume",
             ) {
-                App(appVersion = "1.1.4")
+                App(appVersion = "1.1.5")
             }
         }
     } finally {

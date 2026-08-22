@@ -22,7 +22,7 @@ internal interface LinuxAudioBackend {
 
     suspend fun start()
     suspend fun stop()
-    suspend fun setVolume(volume: Int)
+    suspend fun setVolumeDb(volumeDb: Float)
 }
 
 class LinuxAudioController internal constructor(
@@ -92,23 +92,24 @@ class LinuxAudioController internal constructor(
         _route.value = null
     }
 
-    override suspend fun setVolume(volume: Int) {
+    override suspend fun setVolumeDb(volumeDb: Float) {
         val backend = activeBackend ?: error("Linux audio monitor is not running")
-        backend.setVolume(volume.coerceIn(0, VIRTUAL_MAX_VOLUME))
+        backend.setVolumeDb(volumeDb)
     }
 
     private fun mirror(backend: LinuxAudioBackend) {
         _volume.value = backend.volume.value
-        _route.value = backend.route.value
+        _route.value = backend.route.value?.copy(backendName = backend.backendName)
         volumeMirrorJob = scope.launch {
             backend.volume.collect { _volume.value = it }
         }
         routeMirrorJob = scope.launch {
             backend.route.collect { route ->
-                _route.value = route
+                val routeWithBackend = route?.copy(backendName = backend.backendName)
+                _route.value = routeWithBackend
                 logger(
                     "Linux audio route: " +
-                        (route?.let { "${it.name} (${it.id}), headphones=${it.isHeadphones}" }
+                        (routeWithBackend?.let { "${it.name} (${it.id}), headphones=${it.isHeadphones}" }
                             ?: "none"),
                 )
             }

@@ -96,6 +96,8 @@ actual fun dynamicDarkColorScheme(): ColorScheme {
     return dynamicDarkColorScheme(context)
 }
 
+actual fun currentTimeMillis(): Long = System.currentTimeMillis()
+
 class AndroidAppDiscoveryService(
     context: Context,
 ) : AppDiscoveryService {

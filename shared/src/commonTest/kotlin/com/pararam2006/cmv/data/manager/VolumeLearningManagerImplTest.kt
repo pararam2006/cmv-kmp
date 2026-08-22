@@ -1,9 +1,11 @@
 package com.pararam2006.cmv.data.manager
 
 import com.pararam2006.cmv.domain.model.TrackVolume
+import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
 import com.pararam2006.cmv.domain.usecase.SaveTrackVolumeUseCase
 import com.pararam2006.cmv.domain.model.AppMode
+import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -36,20 +38,20 @@ class VolumeLearningManagerImplTest {
         manager.onTrackChanged(
             title = "Track",
             artist = "Artist",
-            offsetFromDb = 1f,
-            currentSystemVolume = 5,
-            maxVolume = 15,
+            volumeOffset = 0f,
+            offsetModel = VolumeOffsetModel.DECIBEL,
+            systemVolume = snapshot(5),
             trackGeneration = 1,
         )
         manager.onPlaybackStateChanged(true)
         runCurrent()
 
         now = 2_000L
-        manager.onVolumeChanged(7)
+        manager.onVolumeChanged(snapshot(7))
         runCurrent()
 
         assertTrue(manager.debugState.value.hasLearnedOffsetChanged)
-        assertEquals(8f / 6f, manager.debugState.value.currentLearnedOffset)
+        assertEquals(2f, manager.debugState.value.currentLearnedOffsetDb)
 
         now = 17_000L
         manager.onPlaybackStateChanged(false)
@@ -57,7 +59,8 @@ class VolumeLearningManagerImplTest {
 
         assertFalse(manager.debugState.value.hasLearnedOffsetChanged)
         assertEquals(1, repository.tracks.value.size)
-        assertEquals(8f / 6f, repository.tracks.value.single().volumeOffset)
+        assertEquals(2f, repository.tracks.value.single().volumeOffsetDb)
+        assertEquals(VolumeOffsetModel.DECIBEL, repository.tracks.value.single().offsetModel)
     }
 
     @Test
@@ -76,10 +79,10 @@ class VolumeLearningManagerImplTest {
         manager.onHeadsetStateChanged(true)
         manager.onAudioFocusChanged(true)
         manager.onPlaybackStateChanged(true)
-        manager.onTrackChanged("Track", "Artist", 1f, 5, 15, 1)
+        manager.onTrackChanged("Track", "Artist", 0f, VolumeOffsetModel.DECIBEL, snapshot(5), 1)
         runCurrent()
         now = 2_000L
-        manager.onVolumeChanged(7)
+        manager.onVolumeChanged(snapshot(7))
         runCurrent()
         now = 5_000L
         manager.onPlaybackStateChanged(false)
@@ -107,17 +110,17 @@ class VolumeLearningManagerImplTest {
         manager.onHeadsetStateChanged(true)
         manager.onAudioFocusChanged(true)
         manager.onPlaybackStateChanged(true)
-        manager.onTrackChanged("Track", "Artist", 1.25f, 5, 15, 2)
+        manager.onTrackChanged("Track", "Artist", 2f, VolumeOffsetModel.DECIBEL, snapshot(5), 2)
         runCurrent()
         now = 2_000L
-        manager.onVolumeChanged(5)
+        manager.onVolumeChanged(snapshot(5))
         runCurrent()
         now = 17_000L
         manager.onPlaybackStateChanged(false)
         runCurrent()
 
         assertEquals(1, repository.tracks.value.size)
-        assertEquals(1f, repository.tracks.value.single().volumeOffset)
+        assertEquals(0f, repository.tracks.value.single().volumeOffsetDb)
     }
 
     @Test
@@ -135,10 +138,10 @@ class VolumeLearningManagerImplTest {
 
         manager.onHeadsetStateChanged(true)
         manager.onAudioFocusChanged(true)
-        manager.onTrackChanged("Track", "Artist", 1f, 5, 15, 3)
+        manager.onTrackChanged("Track", "Artist", 0f, VolumeOffsetModel.DECIBEL, snapshot(5), 3)
         runCurrent()
         now = 2_000L
-        manager.onVolumeChanged(7)
+        manager.onVolumeChanged(snapshot(7))
         runCurrent()
 
         assertFalse(manager.debugState.value.hasLearnedOffsetChanged)
@@ -160,26 +163,64 @@ class VolumeLearningManagerImplTest {
         manager.onTrackChanged(
             title = "Track",
             artist = "Artist",
-            offsetFromDb = 1.25f,
-            currentSystemVolume = 40,
-            maxVolume = 100,
+            volumeOffset = 10f,
+            offsetModel = VolumeOffsetModel.DECIBEL,
+            systemVolume = snapshot(40, 100),
             trackGeneration = 4,
         )
         runCurrent()
-        assertEquals(-1, manager.debugState.value.expectedProgrammaticVolume)
+        assertTrue(manager.debugState.value.expectedProgrammaticVolumeDb.isNaN())
 
         val command = async { manager.volumeCommands.first() }
         manager.onHeadsetStateChanged(true)
         runCurrent()
 
-        assertEquals(50, command.await().targetVolume)
-        assertEquals(50, manager.debugState.value.expectedProgrammaticVolume)
+        assertEquals(50f, command.await().targetVolumeDb)
+        assertEquals(50f, manager.debugState.value.expectedProgrammaticVolumeDb)
 
-        manager.onVolumeChanged(50)
+        manager.onVolumeChanged(snapshot(50, 100))
         runCurrent()
-        assertEquals(-1, manager.debugState.value.expectedProgrammaticVolume)
+        assertTrue(manager.debugState.value.expectedProgrammaticVolumeDb.isNaN())
         assertFalse(manager.debugState.value.hasLearnedOffsetChanged)
     }
+
+    @Test
+    fun legacyRatioIsMigratedThroughTheCurrentPlatformCurve() = runTest {
+        val repository = FakeTrackVolumeRepository()
+        val manager = VolumeLearningManagerImpl(
+            saveTrackVolumeUseCase = SaveTrackVolumeUseCase(repository),
+            appModeFlow = MutableStateFlow(AppMode.LEARNING),
+            learningTimeSeconds = { 15 },
+            scope = backgroundScope,
+            nowMillis = { 1_000L },
+        )
+        runCurrent()
+
+        manager.onHeadsetStateChanged(true)
+        manager.onPlaybackStateChanged(true)
+        manager.onTrackChanged(
+            title = "Legacy",
+            artist = "Artist",
+            volumeOffset = 1.5f,
+            offsetModel = VolumeOffsetModel.LEGACY_RATIO,
+            systemVolume = snapshot(40, 100),
+            trackGeneration = 5,
+        )
+        runCurrent()
+
+        val migrated = repository.tracks.value.single()
+        assertEquals(21f, migrated.volumeOffsetDb)
+        assertEquals(VolumeOffsetModel.DECIBEL, migrated.offsetModel)
+        assertEquals(61f, manager.volumeCommands.first().targetVolumeDb)
+    }
+
+    private fun snapshot(volume: Int, maxVolume: Int = 15): SystemVolumeSnapshot =
+        SystemVolumeSnapshot(
+            currentVolume = volume,
+            maxVolume = maxVolume,
+            isMuted = false,
+            volumeDbByStep = List(maxVolume + 1) { it.toFloat() },
+        )
 
     private class FakeTrackVolumeRepository : TrackVolumeRepository {
         val tracks = MutableStateFlow<List<TrackVolume>>(emptyList())

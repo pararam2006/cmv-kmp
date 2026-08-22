@@ -11,15 +11,20 @@ import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.pararam2006.cmv.ui.theme.CustomMusicVolumeTheme
 import custommusicvolume.shared.generated.resources.Res
 import custommusicvolume.shared.generated.resources.outline_add_24
 import custommusicvolume.shared.generated.resources.outline_remove_24
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,8 +35,10 @@ fun SliderWithButtons(
     initialLeftButtonInteractionSource: MutableInteractionSource = MutableInteractionSource(),
     onRightButtonPress: () -> Unit,
     onRightButtonHold: () -> Unit,
+    onRightButtonHoldEnd: () -> Unit,
     onLeftButtonPress: () -> Unit,
     onLeftButtonHold: () -> Unit,
+    onLeftButtonHoldEnd: () -> Unit,
     steps: Int,
     sliderModifier: Modifier = Modifier,
     rowModifier: Modifier = Modifier,
@@ -42,48 +49,65 @@ fun SliderWithButtons(
         SliderDefaults.Track(colors = colors, enabled = enabled, sliderState = sliderState)
     },
 ) {
-    val leftInteractionSource = remember { initialRightButtonInteractionSource }
+    val leftInteractionSource = remember { initialLeftButtonInteractionSource }
     val leftIsPressed by leftInteractionSource.collectIsPressedAsState()
-
-    val rightInteractionSource = remember { initialLeftButtonInteractionSource }
+    val rightInteractionSource = remember { initialRightButtonInteractionSource }
     val rightIsPressed by rightInteractionSource.collectIsPressedAsState()
 
+    var leftHoldActive by remember { mutableStateOf(false) }
+    var leftSuppressNextClick by remember { mutableStateOf(false) }
+    var rightHoldActive by remember { mutableStateOf(false) }
+    var rightSuppressNextClick by remember { mutableStateOf(false) }
 
     LaunchedEffect(leftIsPressed) {
         if (leftIsPressed) {
+            leftHoldActive = false
+            leftSuppressNextClick = false
+            delay(BUTTON_HOLD_DELAY_MS.milliseconds)
+            leftHoldActive = true
+            leftSuppressNextClick = true
             onLeftButtonHold()
+        } else if (leftHoldActive) {
+            onLeftButtonHoldEnd()
+            leftHoldActive = false
         }
     }
 
     LaunchedEffect(rightIsPressed) {
         if (rightIsPressed) {
+            rightHoldActive = false
+            rightSuppressNextClick = false
+            delay(BUTTON_HOLD_DELAY_MS.milliseconds)
+            rightHoldActive = true
+            rightSuppressNextClick = true
             onRightButtonHold()
+        } else if (rightHoldActive) {
+            onRightButtonHoldEnd()
+            rightHoldActive = false
         }
     }
 
-//    if (leftIsPressed) {
-//        println("Слыш, отпусти слева!")
-//    } else {
-//        println("А ну нажал обратно слева")
-//    }
-//
-//    if (rightIsPressed) {
-//        println("Слыш, отпусти справа!")
-//    } else {
-//        println("А ну нажал обратно справа")
-//    }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (leftHoldActive) onLeftButtonHoldEnd()
+            if (rightHoldActive) onRightButtonHoldEnd()
+        }
+    }
 
-
-    Row(
-        modifier = rowModifier,
-    ) {
+    Row(modifier = rowModifier) {
         IconButton(
-            onClick = onLeftButtonPress,
+            onClick = {
+                if (leftSuppressNextClick) {
+                    leftSuppressNextClick = false
+                } else {
+                    onLeftButtonPress()
+                }
+            },
             interactionSource = leftInteractionSource,
         ) {
             Icon(
                 painter = painterResource(Res.drawable.outline_remove_24),
-                contentDescription = ""
+                contentDescription = "",
             )
         }
 
@@ -94,16 +118,21 @@ fun SliderWithButtons(
             steps = steps,
             track = track,
             modifier = sliderModifier.weight(1f),
-
-            )
+        )
 
         IconButton(
-            onClick = onRightButtonPress,
-            interactionSource = rightInteractionSource
+            onClick = {
+                if (rightSuppressNextClick) {
+                    rightSuppressNextClick = false
+                } else {
+                    onRightButtonPress()
+                }
+            },
+            interactionSource = rightInteractionSource,
         ) {
             Icon(
                 painter = painterResource(Res.drawable.outline_add_24),
-                contentDescription = ""
+                contentDescription = "",
             )
         }
     }
@@ -118,10 +147,14 @@ private fun SliderWithButtonsPreview() {
             value = 0f,
             onValueChange = {},
             onRightButtonPress = {},
-            onLeftButtonPress = {},
-            steps = 2,
             onRightButtonHold = {},
+            onRightButtonHoldEnd = {},
+            onLeftButtonPress = {},
             onLeftButtonHold = {},
+            onLeftButtonHoldEnd = {},
+            steps = 2,
         )
     }
 }
+
+private const val BUTTON_HOLD_DELAY_MS = 500L

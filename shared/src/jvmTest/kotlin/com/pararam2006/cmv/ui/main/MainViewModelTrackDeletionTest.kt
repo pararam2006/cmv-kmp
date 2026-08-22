@@ -120,7 +120,7 @@ class MainViewModelTrackDeletionTest {
             id = 1,
             trackTitle = "First",
             artistName = "Artist",
-            volumeOffset = 1f,
+            volumeOffsetDb = 0f,
         )
     )
 

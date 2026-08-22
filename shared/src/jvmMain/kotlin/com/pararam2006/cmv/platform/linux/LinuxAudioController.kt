@@ -17,7 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.log10
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 internal class WpctlAudioController(
     private val scope: CoroutineScope,
@@ -41,7 +44,7 @@ internal class WpctlAudioController(
         refresh(throwOnFailure = true)
         pollingJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(POLL_INTERVAL_MS)
+                delay(POLL_INTERVAL_MS.milliseconds)
                 refresh(throwOnFailure = false)
             }
         }
@@ -54,9 +57,8 @@ internal class WpctlAudioController(
         _route.value = null
     }
 
-    override suspend fun setVolume(volume: Int) {
-        val normalized = volume.coerceIn(0, VIRTUAL_MAX_VOLUME)
-        val scalar = String.format(Locale.US, "%.3f", normalized.toDouble() / VIRTUAL_MAX_VOLUME)
+    override suspend fun setVolumeDb(volumeDb: Float) {
+        val scalar = String.format(Locale.US, "%.3f", PulseSoftwareVolumeCurve.dbToScalar(volumeDb))
         withContext(Dispatchers.IO) {
             commandRunner.run(
                 listOf(
@@ -120,6 +122,7 @@ internal object WpctlOutputParser {
                 .coerceIn(0, LinuxAudioController.VIRTUAL_MAX_VOLUME),
             maxVolume = LinuxAudioController.VIRTUAL_MAX_VOLUME,
             isMuted = output.contains("MUTED", ignoreCase = true),
+            volumeDbByStep = PulseSoftwareVolumeCurve.percentDbCurve,
         )
     }
 
@@ -151,6 +154,24 @@ internal object WpctlOutputParser {
         "bluez_output",
         "a2dp",
     )
+}
+
+internal object PulseSoftwareVolumeCurve {
+    const val MIN_VOLUME_DB = -200f
+
+    val percentDbCurve: List<Float> = List(LinuxAudioController.VIRTUAL_MAX_VOLUME + 1) { percent ->
+        scalarToDb(percent.toDouble() / LinuxAudioController.VIRTUAL_MAX_VOLUME)
+    }
+
+    fun scalarToDb(scalar: Double): Float {
+        if (scalar <= 0.0) return MIN_VOLUME_DB
+        return (60.0 * log10(scalar)).toFloat().coerceAtLeast(MIN_VOLUME_DB)
+    }
+
+    fun dbToScalar(volumeDb: Float): Double {
+        if (volumeDb <= MIN_VOLUME_DB) return 0.0
+        return 10.0.pow(volumeDb.coerceAtMost(0f).toDouble() / 60.0).coerceIn(0.0, 1.0)
+    }
 }
 
 internal fun interface CommandRunner {

@@ -12,14 +12,14 @@ class SaveTrackVolumeUseCaseTest {
     @Test
     fun editingRenamedTrackPreservesItsId() = runTest {
         val repository = FakeRepository(
-            TrackVolume(id = 7, trackTitle = "Old", artistName = "Artist", volumeOffset = 1f),
+            TrackVolume(id = 7, trackTitle = "Old", artistName = "Artist", volumeOffsetDb = 0f),
         )
 
         SaveTrackVolumeUseCase(repository)(
             id = 7,
             title = "Renamed",
             artist = "Artist",
-            offset = 1.2f,
+            offsetDb = 1.5f,
         )
 
         assertEquals(1, repository.tracks.value.size)

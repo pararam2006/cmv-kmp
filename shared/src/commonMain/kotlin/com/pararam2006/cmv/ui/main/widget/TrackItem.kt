@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.pararam2006.cmv.domain.model.TrackVolume
+import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.ui.Dimens
 import com.pararam2006.cmv.ui.theme.CustomMusicVolumeTheme
 import custommusicvolume.shared.generated.resources.Res
@@ -48,24 +49,25 @@ fun TrackItem(
     onDownload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val offsetText = when {
-        track.volumeOffset == 1f -> {
-            stringResource(Res.string.main_screen_without_offset_text)
+    val offsetText = if (track.offsetModel == VolumeOffsetModel.LEGACY_RATIO) {
+        when {
+            track.volumeOffsetDb == 1f -> stringResource(Res.string.main_screen_without_offset_text)
+            track.volumeOffsetDb > 1f -> {
+                val percentage = ((track.volumeOffsetDb - 1f) * 100).roundToInt()
+                "${stringResource(Res.string.main_screen_offset_text_louder)} $percentage%"
+            }
+            else -> {
+                val percentage = abs((track.volumeOffsetDb - 1f) * 100).roundToInt()
+                "${stringResource(Res.string.main_screen_offset_text_quiet)} $percentage%"
+            }
         }
-
-        track.volumeOffset > 1f -> {
-            val percentage = ((track.volumeOffset - 1f) * 100).roundToInt()
-            "${stringResource(Res.string.main_screen_offset_text_louder)} $percentage%"
-
-        }
-
-        track.volumeOffset < 1f -> {
-            val percentage = abs(((track.volumeOffset - 1f) * 100).roundToInt())
-            "${stringResource(Res.string.main_screen_offset_text_quiet)} $percentage%"
-        }
-
-        else -> {
-            ""
+    } else {
+        val magnitudeDb = ((abs(track.volumeOffsetDb) * 2).roundToInt() / 2f).asDbText()
+        when {
+            abs(track.volumeOffsetDb) < 0.01f -> stringResource(Res.string.main_screen_without_offset_text)
+            track.volumeOffsetDb > 0f ->
+                "${stringResource(Res.string.main_screen_offset_text_louder)} +$magnitudeDb dB"
+            else -> "${stringResource(Res.string.main_screen_offset_text_quiet)} $magnitudeDb dB"
         }
     }
 
@@ -168,7 +170,8 @@ private fun TrackItemPreview() {
                 id = 0,
                 trackTitle = "Milosc W Zakopanem",
                 artistName = "Slavomir",
-                volumeOffset = 1f,
+                volumeOffsetDb = 0f,
+                offsetModel = VolumeOffsetModel.DECIBEL,
             ),
             onEdit = {},
             onStartDelete = {},
@@ -179,3 +182,6 @@ private fun TrackItemPreview() {
         )
     }
 }
+
+private fun Float.asDbText(): String =
+    if (this % 1f == 0f) toInt().toString() else toString()

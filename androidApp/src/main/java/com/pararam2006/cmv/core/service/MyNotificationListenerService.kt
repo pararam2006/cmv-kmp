@@ -21,7 +21,10 @@ import com.pararam2006.cmv.R
 import com.pararam2006.cmv.core.Constants.LAUNCHING_TIMEOUT
 import com.pararam2006.cmv.core.Constants.SMALL_DELAY
 import com.pararam2006.cmv.domain.repository.HeadphonesRepository
+import com.pararam2006.cmv.platform.AndroidSystemVolumeAdapter
 import com.pararam2006.cmv.domain.service.PlaybackTrackingCoordinator
+import com.pararam2006.cmv.platform.PlaybackRuntimeState
+import com.pararam2006.cmv.platform.PlaybackRuntimeStatus
 import com.pararam2006.cmv.platform.SettingsPreferences
 import com.pararam2006.cmv.utils.logDebug
 import com.pararam2006.cmv.utils.logLifecycle
@@ -46,6 +49,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     private val headphonesDetector: HeadphonesRepository by inject()
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val systemVolumeAdapter by lazy { AndroidSystemVolumeAdapter(audioManager) }
     private val selectedAppsInfoFlow by lazy { playbackCoordinator.selectedApps }
     private val isHeadsetFlow by lazy { headphonesDetector.isHeadsetFlow }
     private var sessionManager: MediaSessionManager? = null
@@ -99,6 +103,8 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             logLifecycle("isHeadsetFlow started")
             isHeadsetFlow.collect { isHeadset ->
                 logDebug("isHeadset=$isHeadset")
+                val route = systemVolumeAdapter.routeSnapshot()?.copy(isHeadphones = isHeadset)
+                serviceStateHolder.setAudioRoute(route)
                 playbackCoordinator.onHeadsetStateChanged(isHeadset)
                 updateForegroundNotification(isHeadset)
             }
@@ -131,6 +137,12 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                 if (!serviceStateHolder.state.value.isConnected) {
                     serviceStateHolder.setStarting(false)
                     serviceStateHolder.setRestartResult(false)
+                    serviceStateHolder.setRuntimeState(
+                        PlaybackRuntimeState(
+                            PlaybackRuntimeStatus.ERROR,
+                            "Notification listener rebind timed out",
+                        ),
+                    )
                     logLifecycle("listener rebind timed out")
                 }
             } catch (e: CancellationException) {
@@ -138,6 +150,9 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             } catch (e: Exception) {
                 serviceStateHolder.setStarting(false)
                 serviceStateHolder.setRestartResult(false)
+                serviceStateHolder.setRuntimeState(
+                    PlaybackRuntimeState(PlaybackRuntimeStatus.ERROR, e.message),
+                )
                 Timber.tag(TAG).e(e, "lifecycle: listener rebind failed")
             }
         }
@@ -147,17 +162,21 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != "android.media.VOLUME_CHANGED_ACTION") return
 
-            val newVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val hasFocus = audioManager.isMusicActive
+            val systemVolume = systemVolumeAdapter.snapshot()
+            serviceStateHolder.setSystemVolume(systemVolume)
             val isHeadset = headphonesDetector.computeIsHeadsetConnected()
+            serviceStateHolder.setAudioRoute(
+                systemVolumeAdapter.routeSnapshot()?.copy(isHeadphones = isHeadset),
+            )
+            val hasFocus = audioManager.isMusicActive
             playbackCoordinator.onVolumeChanged(
-                newVolume = newVolume,
+                systemVolume = systemVolume,
                 isHeadset = isHeadset,
                 hasAudioFocus = hasFocus,
             )
             logDebug(
-                "VOLUME_CHANGED_ACTION: newVolume=$newVolume/$maxVolume, " +
+                "VOLUME_CHANGED_ACTION: volume=${systemVolume.currentVolumeDb}dB " +
+                    "(${systemVolume.currentVolume}/${systemVolume.maxVolume}), " +
                     "isHeadset=$isHeadset, hasFocus=$hasFocus",
             )
         }
@@ -278,6 +297,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     override fun onCreate() {
         logLifecycle("START instanceId=$instanceId")
         super.onCreate()
+        serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STARTING))
 
         // Restore user intent (stopped via UI) across app/service restarts.
         try {
@@ -303,6 +323,10 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             )
 
             val isHeadset = headphonesDetector.computeIsHeadsetConnected()
+            serviceStateHolder.setSystemVolume(systemVolumeAdapter.snapshot())
+            serviceStateHolder.setAudioRoute(
+                systemVolumeAdapter.routeSnapshot()?.copy(isHeadphones = isHeadset),
+            )
             val text = if (isHeadset) "Приложение активно" else "Спит (наушники отключены)"
 
             val notification =
@@ -334,26 +358,31 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                     delay(SMALL_DELAY.milliseconds)
                     if (!playbackCoordinator.isVolumeCommandCurrent(command)) {
                         logDebug(
-                            "Stale volume command skipped: target=${command.targetVolume}, " +
+                            "Stale volume command skipped: target=${command.targetVolumeDb}dB, " +
                                 "generation=${command.trackGeneration}",
                         )
                         return@collectLatest
                     }
 
-                    val beforeVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    val beforeVolume = systemVolumeAdapter.snapshot()
+                    val targetNativeVolume = systemVolumeAdapter.nativeVolumeForDb(command.targetVolumeDb)
                     val shouldShowSystemUi = settingsPreferences.isSystemVolumeUiEnabled()
                     val volumeFlags = if (shouldShowSystemUi) AudioManager.FLAG_SHOW_UI else 0
                     logDebug(
-                        "Manager requested volume change: before=$beforeVolume, " +
-                            "target=${command.targetVolume}, showSystemUi=$shouldShowSystemUi",
+                        "Manager requested volume change: before=${beforeVolume.currentVolumeDb}dB, " +
+                            "target=${command.targetVolumeDb}dB/native=$targetNativeVolume, " +
+                            "showSystemUi=$shouldShowSystemUi",
                     )
                     audioManager.setStreamVolume(
                         AudioManager.STREAM_MUSIC,
-                        command.targetVolume,
+                        targetNativeVolume,
                         volumeFlags,
                     )
-                    val afterVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    logDebug("Volume applied: after=$afterVolume, target=${command.targetVolume}")
+                    val afterVolume = systemVolumeAdapter.snapshot()
+                    logDebug(
+                        "Volume applied: after=${afterVolume.currentVolumeDb}dB, " +
+                            "target=${command.targetVolumeDb}dB",
+                    )
                 }
             }
 
@@ -362,14 +391,17 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                 playbackCoordinator.debugState.collect { st ->
                     Timber.tag(TAG).v(
                         "managerState: track=${st.currentTrackTitle}/${st.currentTrackArtist}, " +
-                                "base=${st.baseVolume}, offset=${st.currentLearnedOffset}, " +
-                                "expectedVol=${st.expectedProgrammaticVolume}, headset=${st.isHeadsetConnected}, " +
+                                "base=${st.baseVolumeDb}dB, offset=${st.currentLearnedOffsetDb}dB, " +
+                                "expectedVol=${st.expectedProgrammaticVolumeDb}dB, headset=${st.isHeadsetConnected}, " +
                                 "focus=${st.hasAudioFocus}, playing=${st.isPlaying}, playingMs=${st.accumulatedPlayingTimeMs}"
                     )
                 }
             }
             logDebug("COMPLETE instanceId=$instanceId")
         } catch (e: Exception) {
+            serviceStateHolder.setRuntimeState(
+                PlaybackRuntimeState(PlaybackRuntimeStatus.ERROR, e.message),
+            )
             Timber.tag(TAG).e(e, "lifecycle: onCreate FAILED during foreground setup")
         }
     }
@@ -380,6 +412,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             logLifecycle("ACTION_START — requesting notification-listener rebind")
             settingsPreferences.setUserStopped(false)
             serviceStateHolder.setUserStopped(false)
+            serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STARTING))
             rebindNotificationListener()
             return START_STICKY
         }
@@ -388,6 +421,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             rebindJob?.cancel()
             rebindJob = null
             serviceStateHolder.setStarting(false)
+            serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED))
             try {
                 settingsPreferences.setUserStopped(true)
             } catch (e: Exception) {
@@ -428,6 +462,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             logLifecycle("onListenerConnected ignored because the user stopped the service")
             serviceStateHolder.setConnected(false)
             serviceStateHolder.setStarting(false)
+            serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED))
             broadcastState()
             runCatching { requestUnbind() }
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -439,6 +474,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         rebindJob = null
         serviceStateHolder.setConnected(true)
         serviceStateHolder.setStarting(false)
+        serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.RUNNING))
         if (wasStarting) serviceStateHolder.setRestartResult(true)
         logLifecycle("registering MediaSessionManager")
         broadcastState()
@@ -480,6 +516,9 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                 logDebug("No selected active media sessions on connect")
             }
         } catch (e: Exception) {
+            serviceStateHolder.setRuntimeState(
+                PlaybackRuntimeState(PlaybackRuntimeStatus.ERROR, e.message),
+            )
             Timber.tag(TAG).e(e, "lifecycle: onListenerConnected FAILED")
         }
     }
@@ -487,6 +526,16 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         serviceStateHolder.setConnected(false)
+        serviceStateHolder.setRuntimeState(
+            if (serviceStateHolder.state.value.userStopped) {
+                PlaybackRuntimeState(PlaybackRuntimeStatus.STOPPED)
+            } else {
+                PlaybackRuntimeState(
+                    PlaybackRuntimeStatus.ERROR,
+                    "Notification listener disconnected",
+                )
+            },
+        )
         if (rebindJob?.isActive != true) {
             serviceStateHolder.setStarting(false)
         }
@@ -504,19 +553,23 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         serviceStateHolder.setCurrentTrackTitle(title)
         serviceStateHolder.setCurrentTrackArtist(artist)
 
-        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val systemVolume = systemVolumeAdapter.snapshot()
+        serviceStateHolder.setSystemVolume(systemVolume)
+        val isHeadset = headphonesDetector.computeIsHeadsetConnected()
+        serviceStateHolder.setAudioRoute(
+            systemVolumeAdapter.routeSnapshot()?.copy(isHeadphones = isHeadset),
+        )
         val hasFocus = audioManager.isMusicActive
         playbackCoordinator.onTrackMetadataChanged(
             title = title,
             artist = artist,
-            currentSystemVolume = currentVolume,
-            maxVolume = maxVolume,
+            systemVolume = systemVolume,
             hasAudioFocus = hasFocus,
         )
         logDebug(
             "Metadata queued from $pkg: title=$title, artist=$artist, album=$album, " +
-                "volume=$currentVolume/$maxVolume, focus=$hasFocus",
+                "volume=${systemVolume.currentVolumeDb}dB " +
+                "(${systemVolume.currentVolume}/${systemVolume.maxVolume}), focus=$hasFocus",
         )
     }
 

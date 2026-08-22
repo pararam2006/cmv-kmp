@@ -1,17 +1,14 @@
 package com.pararam2006.cmv.ui.main.widget
 
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import com.pararam2006.cmv.core.Constants.DIALOG_OFFSET_STEP
 import com.pararam2006.cmv.core.Constants.VOLUME_SLIDER_STEPS_COUNT
 import com.pararam2006.cmv.core.Constants.VOLUME_SLIDER_VALUE_RANGE
 import com.pararam2006.cmv.core.ui.SliderTransparentTrack
@@ -28,7 +25,7 @@ fun TrackDialog(
     initialTitle: String,
     initialArtist: String,
     modifier: Modifier = Modifier,
-    initialOffset: Float = 1f,
+    initialOffset: Float = 0f,
     isEdit: Boolean = false,
     enabled: Boolean = true,
     onDismiss: () -> Unit,
@@ -41,15 +38,9 @@ fun TrackDialog(
     onStopDecrementing: () -> Unit,
     onOffsetChange: (Float) -> Unit,
 ) {
-    val offsetPercent = (initialOffset * 100).roundToInt().toFloat()
+    val offsetDb = initialOffset.coerceIn(VOLUME_SLIDER_VALUE_RANGE)
+    val displayOffsetDb = (offsetDb * 2).roundToInt() / 2f
 
-    val leftInteractionSource = remember { MutableInteractionSource() }
-    val leftIsPressed by leftInteractionSource.collectIsPressedAsState()
-    val leftButtonPressAction = if (leftIsPressed) onStartDecrementing else onStopDecrementing
-
-    val rightInteractionSource = remember { MutableInteractionSource() }
-    val rightIsPressed by rightInteractionSource.collectIsPressedAsState()
-    val rightButtonPressAction = if (rightIsPressed) onStartIncrementing else onStopIncrementing
 
     AlertDialog(
         modifier = modifier,
@@ -95,34 +86,38 @@ fun TrackDialog(
 
                 Text(
                     text = when {
-                        offsetPercent > 100f -> "Громче на ${offsetPercent.toInt() - 100}%"
-                        offsetPercent < 100f -> "Тише на ${100 - offsetPercent.toInt()}%"
+                        displayOffsetDb > 0f -> "Громче на +${displayOffsetDb.asDbText()} dB"
+                        displayOffsetDb < 0f -> "Тише на ${(-displayOffsetDb).asDbText()} dB"
                         else -> stringResource(Res.string.main_screen_without_offset_text)
                     },
                     fontSize = 18.sp,
                 )
                 SliderWithButtons(
-                    value = offsetPercent,
-                    onValueChange = { onOffsetChange((it.roundToInt() / 100f)) },
+                    value = offsetDb,
+                    onValueChange = { onOffsetChange((it * 2).roundToInt() / 2f) },
                     valueRange = VOLUME_SLIDER_VALUE_RANGE,
                     steps = VOLUME_SLIDER_STEPS_COUNT,
                     track = { sliderState -> SliderTransparentTrack(sliderState = sliderState) },
-                    onRightButtonPress = rightButtonPressAction,
+                    onRightButtonPress = {
+                        onOffsetChange((offsetDb + DIALOG_OFFSET_STEP).coerceIn(VOLUME_SLIDER_VALUE_RANGE))
+                    },
                     onRightButtonHold = onStartIncrementing,
-                    onLeftButtonPress = leftButtonPressAction,
+                    onRightButtonHoldEnd = onStopIncrementing,
+                    onLeftButtonPress = {
+                        onOffsetChange((offsetDb - DIALOG_OFFSET_STEP).coerceIn(VOLUME_SLIDER_VALUE_RANGE))
+                    },
                     onLeftButtonHold = onStartDecrementing,
+                    onLeftButtonHoldEnd = onStopDecrementing,
                 )
             }
         },
         confirmButton = {
             Button(onClick = {
                 if (initialTitle.trim().isNotEmpty()) {
-                    val offsetFloat = offsetPercent / 100f
-
                     onConfirm(
                         initialTitle,
                         initialArtist.ifBlank { null },
-                        offsetFloat
+                        displayOffsetDb
                     )
                 }
             }) {
@@ -142,3 +137,6 @@ fun TrackDialog(
         }
     )
 }
+
+private fun Float.asDbText(): String =
+    if (this % 1f == 0f) toInt().toString() else toString()

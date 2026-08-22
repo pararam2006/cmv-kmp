@@ -21,6 +21,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 
 class LinuxPlatformRuntimeTest {
     @Test
@@ -29,7 +30,14 @@ class LinuxPlatformRuntimeTest {
 
         assertEquals(42, state.currentVolume)
         assertEquals(100, state.maxVolume)
+        assertEquals(PulseSoftwareVolumeCurve.scalarToDb(0.42), state.currentVolumeDb, 0.001f)
         assertTrue(state.isMuted)
+    }
+
+    @Test
+    fun pulseSoftwareCurveRoundTripsDbAndScalar() {
+        val scalar = PulseSoftwareVolumeCurve.dbToScalar(-12f)
+        assertEquals(-12f, PulseSoftwareVolumeCurve.scalarToDb(scalar), 0.001f)
     }
 
     @Test
@@ -93,12 +101,12 @@ class LinuxPlatformRuntimeTest {
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val controller = LinuxPulseAudioController()
-        var originalVolume: Int? = null
+        var originalVolumeDb: Float? = null
         try {
             controller.start()
             val initial = assertNotNull(controller.volume.value)
             assertNotNull(controller.route.value)
-            originalVolume = initial.currentVolume
+            originalVolumeDb = initial.currentVolumeDb
             val target = if (initial.currentVolume < 100) {
                 initial.currentVolume + 1
             } else {
@@ -115,12 +123,12 @@ class LinuxPlatformRuntimeTest {
             ).inheritIO().start()
             assertEquals(0, process.waitFor())
 
-            val event = withTimeout(3_000) {
+            val event = withTimeout(3_000.milliseconds) {
                 controller.volume.first { it?.currentVolume == target }
             }
             assertEquals(target, event?.currentVolume)
         } finally {
-            originalVolume?.let { runCatching { controller.setVolume(it) } }
+            originalVolumeDb?.let { runCatching { controller.setVolumeDb(it) } }
             runCatching { controller.stop() }
             scope.cancel()
         }
@@ -143,8 +151,8 @@ class LinuxPlatformRuntimeTest {
             assertEquals(1, fallback.startCount)
             assertEquals(40, controller.volume.value?.currentVolume)
 
-            controller.setVolume(55)
-            assertEquals(55, fallback.lastSetVolume)
+            controller.setVolumeDb(-10f)
+            assertEquals(-10f, fallback.lastSetVolumeDb)
 
             controller.stop()
             assertEquals(0, fallback.stopCount)
@@ -225,7 +233,7 @@ class LinuxPlatformRuntimeTest {
         val monitor = LinuxMprisPlaybackMonitor(scope)
         try {
             monitor.start()
-            val players = withTimeout(3_000) {
+            val players = withTimeout(3_000.milliseconds) {
                 monitor.players.first { snapshots ->
                     snapshots.any { it.app.label.contains("Яндекс", ignoreCase = true) }
                 }
@@ -289,7 +297,7 @@ private class FakeLinuxAudioBackend(
 
     var startCount = 0
     var stopCount = 0
-    var lastSetVolume: Int? = null
+    var lastSetVolumeDb: Float? = null
 
     override suspend fun start() {
         startCount += 1
@@ -300,7 +308,7 @@ private class FakeLinuxAudioBackend(
         stopCount += 1
     }
 
-    override suspend fun setVolume(volume: Int) {
-        lastSetVolume = volume
+    override suspend fun setVolumeDb(volumeDb: Float) {
+        lastSetVolumeDb = volumeDb
     }
 }

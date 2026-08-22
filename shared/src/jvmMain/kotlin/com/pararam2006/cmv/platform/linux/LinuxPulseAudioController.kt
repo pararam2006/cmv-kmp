@@ -62,6 +62,12 @@ internal class LinuxPulseAudioController(
     private var defaultSinkChannels = 2
 
     @Volatile
+    private var defaultSinkChannelVolumes = IntArray(0)
+
+    @Volatile
+    private var defaultSinkSupportsDecibelVolume: Boolean? = null
+
+    @Volatile
     private var connectionLatch: CountDownLatch? = null
 
     @Volatile
@@ -116,10 +122,21 @@ internal class LinuxPulseAudioController(
         if (infoPointer != null && endOfList == 0) {
             runCatching {
                 val info = PulseSinkInfo(infoPointer)
-                val snapshot = PulseSinkSnapshot.from(info)
+                val snapshot = PulseSinkSnapshot.from(info, library ?: error("libpulse backend stopped"))
                 if (snapshot.sinkName == defaultSinkName) {
                     defaultSinkIndex = snapshot.sinkIndex
                     defaultSinkChannels = snapshot.channels.coerceIn(1, PA_CHANNELS_MAX)
+                    defaultSinkChannelVolumes = snapshot.channelVolumes.copyOf()
+                    if (defaultSinkSupportsDecibelVolume != snapshot.supportsDecibelVolume) {
+                        logger(
+                            if (snapshot.supportsDecibelVolume) {
+                                "libpulse sink exposes a native decibel volume curve"
+                            } else {
+                                "libpulse sink has no PA_SINK_DECIBEL_VOLUME; using the PulseAudio software dB curve"
+                            },
+                        )
+                        defaultSinkSupportsDecibelVolume = snapshot.supportsDecibelVolume
+                    }
                     _volume.value = snapshot.volume
                     _route.value = snapshot.route
                     initialSnapshotLatch?.countDown()
@@ -224,20 +241,30 @@ internal class LinuxPulseAudioController(
         closeNative()
     }
 
-    override suspend fun setVolume(volume: Int) = withContext(Dispatchers.IO) {
+    override suspend fun setVolumeDb(volumeDb: Float) = withContext(Dispatchers.IO) {
         val lib = library ?: error("libpulse backend is not running")
         val loop = mainloop ?: error("libpulse backend is not running")
         val currentContext = context ?: error("libpulse backend is not running")
         val sinkName = defaultSinkName ?: error("libpulse has no default sink")
         check(contextState == PA_CONTEXT_READY) { "libpulse connection is not ready" }
 
-        val targetPercent = volume.coerceIn(0, LinuxAudioController.VIRTUAL_MAX_VOLUME)
-        val targetNativeVolume = (
-            targetPercent.toDouble() * PA_VOLUME_NORM / LinuxAudioController.VIRTUAL_MAX_VOLUME
-        ).roundToInt()
+        val snapshot = _volume.value ?: error("libpulse has no current volume snapshot")
+        val targetDb = snapshot.clampDb(volumeDb)
+        val targetNativeVolume = lib.pa_sw_volume_from_dB(targetDb.toDouble())
         val channelVolume = PulseCVolume()
-        check(lib.pa_cvolume_set(channelVolume, defaultSinkChannels, targetNativeVolume) != null) {
-            "Unable to prepare a libpulse channel volume"
+        val channelValues = defaultSinkChannelVolumes
+        if (channelValues.size >= defaultSinkChannels && channelValues.any { it != 0 }) {
+            channelVolume.channels = defaultSinkChannels.toByte()
+            repeat(defaultSinkChannels) { index ->
+                channelVolume.values[index] = channelValues[index]
+            }
+            check(lib.pa_cvolume_scale(channelVolume, targetNativeVolume) != null) {
+                "Unable to scale the libpulse channel volume"
+            }
+        } else {
+            check(lib.pa_cvolume_set(channelVolume, defaultSinkChannels, targetNativeVolume) != null) {
+                "Unable to prepare a libpulse channel volume"
+            }
         }
 
         val result = AtomicReference<Boolean?>(null)
@@ -272,7 +299,10 @@ internal class LinuxPulseAudioController(
         check(result.get() == true) {
             "Unable to set the default sink volume: ${pulseError(lib, currentContext)}"
         }
-        _volume.value = _volume.value?.copy(currentVolume = targetPercent)
+        val targetPercent = (
+            Integer.toUnsignedLong(targetNativeVolume) * LinuxAudioController.VIRTUAL_MAX_VOLUME / PA_VOLUME_NORM
+        ).toInt().coerceIn(0, LinuxAudioController.VIRTUAL_MAX_VOLUME)
+        _volume.value = snapshot.copy(currentVolume = targetPercent)
     }
 
     private fun requestServerInfoLocked(lib: PulseAudioLibrary, currentContext: Pointer) {
@@ -331,12 +361,14 @@ internal class LinuxPulseAudioController(
 
         mainloopStarted = false
         context = null
+        defaultSinkSupportsDecibelVolume = null
         mainloop = null
         library = null
         contextState = PA_CONTEXT_UNCONNECTED
         defaultSinkName = null
         defaultSinkIndex = null
         defaultSinkChannels = 2
+        defaultSinkChannelVolumes = IntArray(0)
         pendingSuccessCallbacks.clear()
         clearSnapshots()
     }
@@ -393,24 +425,39 @@ internal data class PulseSinkSnapshot(
     val sinkName: String,
     val sinkIndex: Int,
     val channels: Int,
+    val channelVolumes: IntArray,
+    val supportsDecibelVolume: Boolean,
     val volume: SystemVolumeSnapshot,
     val route: AudioRouteSnapshot,
 ) {
     companion object {
-        fun from(info: PulseSinkInfo): PulseSinkSnapshot {
+        fun from(info: PulseSinkInfo, library: PulseAudioLibrary): PulseSinkSnapshot {
             val sinkName = info.name.stringValue() ?: error("libpulse sink has no name")
             val description = info.description.stringValue() ?: sinkName
             val channelCount = info.volume.channels.toInt() and 0xFF
             check(channelCount in 1..PulseCVolume.CHANNELS_MAX) {
                 "libpulse returned an invalid channel count: $channelCount"
             }
-            val nativeAverage = info.volume.values
+            // pa_cvolume_scale() defines the shared/master value as the maximum
+            // channel volume while preserving the channel proportions.
+            val nativeMaster = info.volume.values
                 .take(channelCount)
                 .map(Integer::toUnsignedLong)
-                .average()
+                .maxOrNull()
+                ?.toDouble()
+                ?: 0.0
             val volumePercent = (
-                nativeAverage * LinuxAudioController.VIRTUAL_MAX_VOLUME / PulseCVolume.VOLUME_NORM
+                nativeMaster * LinuxAudioController.VIRTUAL_MAX_VOLUME / PulseCVolume.VOLUME_NORM
             ).roundToInt().coerceIn(0, LinuxAudioController.VIRTUAL_MAX_VOLUME)
+            val dbCurve = List(LinuxAudioController.VIRTUAL_MAX_VOLUME + 1) { percent ->
+                val nativeVolume = (
+                    percent.toDouble() * PulseCVolume.VOLUME_NORM / LinuxAudioController.VIRTUAL_MAX_VOLUME
+                ).roundToInt()
+                library.pa_sw_volume_to_dB(nativeVolume)
+                    .toFloat()
+                    .takeIf(Float::isFinite)
+                    ?: PulseSoftwareVolumeCurve.MIN_VOLUME_DB
+            }
 
             val activePort = info.activePort?.let(::PulseSinkPortInfo)
             val portName = activePort?.name.stringValue()
@@ -425,10 +472,13 @@ internal data class PulseSinkSnapshot(
                 sinkName = sinkName,
                 sinkIndex = info.index,
                 channels = channelCount,
+                channelVolumes = info.volume.values.copyOf(channelCount),
+                supportsDecibelVolume = info.flags and PA_SINK_DECIBEL_VOLUME != 0,
                 volume = SystemVolumeSnapshot(
                     currentVolume = volumePercent,
                     maxVolume = LinuxAudioController.VIRTUAL_MAX_VOLUME,
                     isMuted = info.mute != 0,
+                    volumeDbByStep = dbCurve,
                 ),
                 route = AudioRouteSnapshot(
                     id = if (portName == null) sinkName else "$sinkName/$portName",
@@ -440,6 +490,8 @@ internal data class PulseSinkSnapshot(
                 ),
             )
         }
+
+        private const val PA_SINK_DECIBEL_VOLUME = 0x0020
     }
 }
 
@@ -516,6 +568,9 @@ internal interface PulseAudioLibrary : Library {
         callback: PulseSubscribeCallback?,
         userdata: Pointer?,
     )
+    fun pa_cvolume_scale(volume: PulseCVolume, max: Int): Pointer?
+    fun pa_sw_volume_to_dB(volume: Int): Double
+    fun pa_sw_volume_from_dB(volumeDb: Double): Int
 
     fun pa_operation_unref(operation: Pointer)
     fun pa_cvolume_set(volume: PulseCVolume, channels: Int, value: Int): Pointer?
