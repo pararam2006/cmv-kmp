@@ -263,6 +263,8 @@ fun RootNavGraph(appVersion: String) {
                             onNavigateToApps = { navController.navigate(Route.SelectApps) },
                             onNavigateToChangeMode = { navController.navigate(Route.ChangeMode) },
                             onNavigateToDebug = { navController.navigate(Route.Debug) },
+                            onSetVolumeJumpProtectionEnabled =
+                                settingsScreenViewModel::setVolumeJumpProtectionEnabled,
                         )
                     }
 

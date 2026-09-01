@@ -6,4 +6,5 @@ data class SettingsUiState(
     val showSystemVolumeUi: Boolean = true,
     val sliderPosition: Float = 15f,
     val appMode: AppMode = AppMode.LEARNING,
+    val volumeJumpProtectionEnabled: Boolean = false,
 )

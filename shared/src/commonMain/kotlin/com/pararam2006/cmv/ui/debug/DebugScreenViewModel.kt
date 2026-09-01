@@ -48,6 +48,7 @@ class DebugScreenViewModel(
             appMode = settingsPreferences.appMode,
             learningTimeSeconds = settingsPreferences.learningTimeSeconds,
             showSystemVolumeUi = settingsPreferences.showSystemVolumeUi,
+            volumeJumpProtectionEnabled = settingsPreferences.volumeJumpProtectionEnabled,
             observedAtMs = now,
         )
     }.stateIn(
@@ -65,6 +66,7 @@ class DebugScreenViewModel(
             appMode = settingsPreferences.appMode,
             learningTimeSeconds = settingsPreferences.learningTimeSeconds,
             showSystemVolumeUi = settingsPreferences.showSystemVolumeUi,
+            volumeJumpProtectionEnabled = settingsPreferences.volumeJumpProtectionEnabled,
             observedAtMs = currentTimeMillis(),
         ),
     )

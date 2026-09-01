@@ -34,6 +34,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_TYPE"
                 android:value="The service monitors media playback sessions and volume changes to learn and apply per-track volume preferences, which requires a persistent background presence to respond to system broadcasts and media metadata changes." />
         </service>
+        <service
+            android:name=".core.tile.MyControlCenterTileService"
+            android:label="@string/android_tile_title"
+            android:icon="@drawable/outline_edit_audio_24"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

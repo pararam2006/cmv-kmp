@@ -116,7 +116,7 @@ fun main(args: Array<String>) {
                 },
                 title = "Custom Music Volume",
             ) {
-                App(appVersion = "1.1.5")
+                App(appVersion = "1.2")
             }
         }
     } finally {

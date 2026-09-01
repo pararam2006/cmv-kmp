@@ -38,11 +38,23 @@ import custommusicvolume.shared.generated.resources.about_faq_a2
 import custommusicvolume.shared.generated.resources.about_faq_a3
 import custommusicvolume.shared.generated.resources.about_faq_a4
 import custommusicvolume.shared.generated.resources.about_faq_a5
+import custommusicvolume.shared.generated.resources.about_faq_a6
+import custommusicvolume.shared.generated.resources.about_faq_a7
+import custommusicvolume.shared.generated.resources.about_faq_a8
+import custommusicvolume.shared.generated.resources.about_faq_a9
+import custommusicvolume.shared.generated.resources.about_faq_a10
+import custommusicvolume.shared.generated.resources.about_faq_a11
 import custommusicvolume.shared.generated.resources.about_faq_q1
 import custommusicvolume.shared.generated.resources.about_faq_q2
 import custommusicvolume.shared.generated.resources.about_faq_q3
 import custommusicvolume.shared.generated.resources.about_faq_q4
 import custommusicvolume.shared.generated.resources.about_faq_q5
+import custommusicvolume.shared.generated.resources.about_faq_q6
+import custommusicvolume.shared.generated.resources.about_faq_q7
+import custommusicvolume.shared.generated.resources.about_faq_q8
+import custommusicvolume.shared.generated.resources.about_faq_q9
+import custommusicvolume.shared.generated.resources.about_faq_q10
+import custommusicvolume.shared.generated.resources.about_faq_q11
 import custommusicvolume.shared.generated.resources.about_faq_title
 import custommusicvolume.shared.generated.resources.about_screen_description
 import custommusicvolume.shared.generated.resources.app_name
@@ -120,6 +132,36 @@ fun AboutScreen(
             FaqItem(
                 question = stringResource(Res.string.about_faq_q5),
                 answer = stringResource(Res.string.about_faq_a5)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q6),
+                answer = stringResource(Res.string.about_faq_a6)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q7),
+                answer = stringResource(Res.string.about_faq_a7)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q8),
+                answer = stringResource(Res.string.about_faq_a8)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q9),
+                answer = stringResource(Res.string.about_faq_a9)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q10),
+                answer = stringResource(Res.string.about_faq_a10)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q11),
+                answer = stringResource(Res.string.about_faq_a11)
             )
         }
 

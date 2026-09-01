@@ -16,6 +16,7 @@ val managerModule = module {
             saveTrackVolumeUseCase = get(),
             appModeFlow = settingsPreferences.appModeFlow,
             learningTimeSeconds = { settingsPreferences.learningTimeSeconds },
+            volumeJumpProtectionEnabled = { settingsPreferences.volumeJumpProtectionEnabled },
             scope = get(named("AppScope")),
             nowMillis = System::currentTimeMillis,
             logger = { message -> Timber.tag("CMV.VolumeLearningManager").d(message) },

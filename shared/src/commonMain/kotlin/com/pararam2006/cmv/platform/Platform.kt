@@ -10,6 +10,7 @@ expect class SettingsPreferences {
     var showSystemVolumeUi: Boolean
     var learningTimeSeconds: Int
     var appMode: AppMode
+    var volumeJumpProtectionEnabled: Boolean
 
     // Flow-based settings (used by Android service)
     val appModeFlow: StateFlow<AppMode>

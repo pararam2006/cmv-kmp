@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import com.pararam2006.cmv.domain.manager.VOLUME_JUMP_PROTECTION_THRESHOLD_DB
 import com.pararam2006.cmv.domain.manager.activePlayingTimeMs
 import com.pararam2006.cmv.domain.manager.isSavingThresholdReached
 import com.pararam2006.cmv.domain.manager.timeSinceLastManualChangeMs
@@ -137,6 +138,20 @@ fun DebugScreen(
                 DebugRowData("Режим", uiState.appMode.name),
                 DebugRowData("Время обучения", "${uiState.learningTimeSeconds} с"),
                 DebugRowData("Показывать системный UI", uiState.showSystemVolumeUi.yesNo()),
+                DebugRowData("Защита от скачка", uiState.volumeJumpProtectionEnabled.yesNo()),
+                DebugRowData(
+                    "Порог высокого offset",
+                    VOLUME_JUMP_PROTECTION_THRESHOLD_DB.db(),
+                ),
+                DebugRowData("Offset предыдущего трека", learning.previousTrackOffsetDb.db()),
+                DebugRowData(
+                    "Защита сработала на последнем переходе",
+                    learning.volumeJumpProtectionApplied.yesNo(),
+                ),
+                DebugRowData(
+                    "Безопасная целевая громкость",
+                    learning.volumeJumpProtectionTargetDb.db(),
+                ),
                 DebugRowData("Условия обработки выполнены", canProcessVolume.yesNo()),
                 DebugRowData("Базовая громкость", learning.baseVolumeDb.db()),
                 DebugRowData("Текущий offset", learning.currentLearnedOffsetDb.db()),

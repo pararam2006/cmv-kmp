@@ -1,6 +1,7 @@
 package com.pararam2006.cmv.data.manager
 
 import com.pararam2006.cmv.core.Constants.TINY_DELAY
+import com.pararam2006.cmv.domain.manager.VOLUME_JUMP_PROTECTION_THRESHOLD_DB
 import com.pararam2006.cmv.domain.manager.VolumeCommand
 import com.pararam2006.cmv.domain.manager.VolumeLearningManager
 import com.pararam2006.cmv.domain.manager.VolumeState
@@ -38,7 +39,6 @@ private sealed interface LearningEvent {
     data class VolumeChanged(val systemVolume: SystemVolumeSnapshot) : LearningEvent
     data class PlaybackChanged(val isPlaying: Boolean) : LearningEvent
     object SaveTimerStart : LearningEvent
-    object SaveTimerCancel : LearningEvent
     object SaveIfNeeded : LearningEvent
     object SessionDetached : LearningEvent
     data class ActiveSessionChanged(val packageName: String?) : LearningEvent
@@ -59,6 +59,7 @@ class VolumeLearningManagerImpl(
     private val saveTrackVolumeUseCase: SaveTrackVolumeUseCase,
     private val appModeFlow: StateFlow<AppMode>,
     private val learningTimeSeconds: () -> Int,
+    private val volumeJumpProtectionEnabled: () -> Boolean,
     private val scope: CoroutineScope,
     private val nowMillis: () -> Long,
     private val logger: (String) -> Unit = {},
@@ -100,11 +101,10 @@ class VolumeLearningManagerImpl(
             is LearningEvent.AudioFocusChanged -> handleAudioFocusChanged(event.hasFocus)
             is LearningEvent.HeadsetChanged -> handleHeadsetStateChanged(event.isConnected)
             is LearningEvent.PlaybackChanged -> handlePlaybackStateChanged(event)
-            LearningEvent.SaveIfNeeded -> handleSavePendingOffset()
+            LearningEvent.SaveIfNeeded -> saveStablePendingOffset()
             is LearningEvent.TrackChanged -> handleTrackChanged(event)
             is LearningEvent.VolumeChanged -> handleVolumeChanged(event)
-            LearningEvent.SaveTimerCancel -> handleSaveTimerCancel(event)
-            LearningEvent.SaveTimerStart -> handleSaveTimerStart(event)
+            LearningEvent.SaveTimerStart -> schedulePendingOffsetSave()
             LearningEvent.SessionDetached -> handleSessionDetached()
             LearningEvent.ServiceStopped -> handleServiceStopped()
             is LearningEvent.AppModeChanged -> handleAppModeChanged(event)
@@ -126,9 +126,9 @@ class VolumeLearningManagerImpl(
     ) {
         logDebug(
             "title=$title, artist=$artist, offset=$volumeOffset/$offsetModel, " +
-                "vol=${systemVolume.currentVolumeDb}dB " +
-                "(${systemVolume.currentVolume}/${systemVolume.maxVolume}), " +
-                "generation=$trackGeneration",
+                    "vol=${systemVolume.currentVolumeDb}dB " +
+                    "(${systemVolume.currentVolume}/${systemVolume.maxVolume}), " +
+                    "generation=$trackGeneration",
         )
         events.trySend(
             LearningEvent.TrackChanged(
@@ -143,10 +143,13 @@ class VolumeLearningManagerImpl(
     }
 
     private suspend fun handleTrackChanged(event: LearningEvent.TrackChanged) {
+        // До updateState здесь всё ещё находится предыдущий трек.
+        val previousState = state.value
         val now = nowMillis()
 
-        handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
-        handleSavePendingOffset()
+        // Сначала завершаем его обучение, затем рассчитываем переход к новому треку.
+        cancelSaveTimer()
+        saveStablePendingOffset()
 
         val snapshot = event.systemVolume
         val currentBaseDb = state.value.baseVolumeDb
@@ -155,50 +158,30 @@ class VolumeLearningManagerImpl(
         } else {
             snapshot.clampDb(currentBaseDb)
         }
-        val resolvedOffsetDb = when (event.offsetModel) {
-            VolumeOffsetModel.DECIBEL -> event.volumeOffset
-            VolumeOffsetModel.LEGACY_RATIO -> snapshot.legacyRatioToOffsetDb(
-                baseNativeVolume = snapshot.nativeVolumeForDb(newBaseDb),
-                ratio = event.volumeOffset,
-            )
-        }
-        if (event.offsetModel == VolumeOffsetModel.LEGACY_RATIO) {
-            logDebug(
-                "Migrating legacy offset ${event.volumeOffset} for ${event.title} " +
-                    "to ${resolvedOffsetDb}dB",
-            )
-            saveTrackVolumeUseCase(
-                title = event.title,
-                artist = event.artist,
-                offsetDb = resolvedOffsetDb,
-                id = 0,
-            )
-        }
-
-        var commandToEmit: VolumeCommand? = null
-        updateState(
-            "onTrackChanged",
-            "title=${event.title}, dbOffset=$resolvedOffsetDb",
-        ) { currentState ->
-            val canApplyRule = currentState.isHeadsetConnected &&
-                currentState.hasAudioFocus &&
-                currentState.isPlaying
-            val newExpectedVolumeDb = calculateExpectedVolumeDb(
-                baseDb = newBaseDb,
-                offsetDb = resolvedOffsetDb,
-                snapshot = snapshot,
-                canApplyRule = canApplyRule,
-            )
-
-            if (!newExpectedVolumeDb.isNaN()) {
-                commandToEmit = VolumeCommand(
-                    targetVolumeDb = newExpectedVolumeDb,
+        val resolvedOffsetDb = resolveOffsetDb(event, newBaseDb)
+        migrateLegacyOffsetIfNeeded(event, resolvedOffsetDb)
+        val target = resolveTrackTargetDb(
+            previousState = previousState,
+            baseDb = newBaseDb,
+            loadedOffsetDb = resolvedOffsetDb,
+            snapshot = snapshot,
+        )
+        val command = target.volumeDb
+            .takeUnless(Float::isNaN)
+            ?.let { targetVolumeDb ->
+                VolumeCommand(
+                    targetVolumeDb = targetVolumeDb,
                     trackTitle = event.title,
                     trackArtist = event.artist,
                     trackGeneration = event.trackGeneration,
                 )
             }
 
+        updateState(
+            "onTrackChanged",
+            "title=${event.title}, dbOffset=$resolvedOffsetDb, " +
+                    "jumpProtection=${target.jumpProtectionApplied}",
+        ) { currentState ->
             currentState.copy(
                 currentTrackTitle = event.title,
                 currentTrackArtist = event.artist,
@@ -206,27 +189,92 @@ class VolumeLearningManagerImpl(
                 accumulatedPlayingTimeMs = 0,
                 currentPlayChunkStartMs = if (currentState.isPlaying) now else 0,
                 baseVolumeDb = newBaseDb,
-                expectedProgrammaticVolumeDb = newExpectedVolumeDb,
+                expectedProgrammaticVolumeDb = target.volumeDb,
                 currentLearnedOffsetDb = resolvedOffsetDb,
                 currentSystemVolume = snapshot,
                 hasLearnedOffsetChanged = false,
                 lastManualVolumeChangeTimeMs = 0,
                 trackGeneration = event.trackGeneration,
+                previousTrackOffsetDb = previousState.currentLearnedOffsetDb,
+                volumeJumpProtectionApplied = target.jumpProtectionApplied,
+                volumeJumpProtectionTargetDb = if (target.jumpProtectionApplied) {
+                    target.volumeDb
+                } else {
+                    Float.NaN
+                },
             )
         }
 
-        commandToEmit?.let { command ->
-            logDebug(
-                "volumeCommand: emit target=${command.targetVolumeDb}dB, " +
-                    "generation=${command.trackGeneration}",
+        command?.let(::emitVolumeCommand)
+    }
+
+    private fun resolveOffsetDb(
+        event: LearningEvent.TrackChanged,
+        baseDb: Float,
+    ): Float = when (event.offsetModel) {
+        VolumeOffsetModel.DECIBEL -> event.volumeOffset
+        VolumeOffsetModel.LEGACY_RATIO -> event.systemVolume.legacyRatioToOffsetDb(
+            baseNativeVolume = event.systemVolume.nativeVolumeForDb(baseDb),
+            ratio = event.volumeOffset,
+        )
+    }
+
+    private suspend fun migrateLegacyOffsetIfNeeded(
+        event: LearningEvent.TrackChanged,
+        resolvedOffsetDb: Float,
+    ) {
+        if (event.offsetModel != VolumeOffsetModel.LEGACY_RATIO) return
+
+        logDebug(
+            "Migrating legacy offset ${event.volumeOffset} for ${event.title} " +
+                    "to ${resolvedOffsetDb}dB",
+        )
+        saveTrackVolumeUseCase(
+            title = event.title,
+            artist = event.artist,
+            offsetDb = resolvedOffsetDb,
+            id = 0,
+        )
+    }
+
+    private fun resolveTrackTargetDb(
+        previousState: VolumeState,
+        baseDb: Float,
+        loadedOffsetDb: Float,
+        snapshot: SystemVolumeSnapshot,
+    ): TrackTarget {
+        val canApplyRule = previousState.isHeadsetConnected &&
+                previousState.hasAudioFocus &&
+                previousState.isPlaying
+        val regularTargetDb = calculateExpectedVolumeDb(
+            baseDb = baseDb,
+            offsetDb = loadedOffsetDb,
+            snapshot = snapshot,
+            canApplyRule = canApplyRule,
+        )
+        // Сохранённое правило нового трека всегда важнее защитного возврата к базе.
+        if (!regularTargetDb.isNaN()) return TrackTarget(regularTargetDb)
+
+        val hasCarriedBoost = snapshot.currentVolumeDb > baseDb + MIN_OFFSET_DB
+        val shouldProtect = canApplyRule &&
+                !baseDb.isNaN() &&
+                appMode == AppMode.LEARNING &&
+                volumeJumpProtectionEnabled() &&
+                previousState.currentLearnedOffsetDb >= VOLUME_JUMP_PROTECTION_THRESHOLD_DB &&
+                abs(loadedOffsetDb) < MIN_OFFSET_DB &&
+                hasCarriedBoost
+
+        return if (shouldProtect) {
+            TrackTarget(
+                volumeDb = snapshot.clampDb(baseDb),
+                jumpProtectionApplied = true,
             )
-            if (volumeCommandChannel.trySend(command).isFailure) {
-                logDebug("volumeCommand: failed to enqueue generation=${command.trackGeneration}")
-            }
+        } else {
+            TrackTarget()
         }
     }
 
-    private fun handleSaveTimerCancel(event: LearningEvent) {
+    private fun cancelSaveTimer() {
         if (scheduledSaveJob != null) {
             logDebug("saveTimer cancelled")
         }
@@ -238,7 +286,7 @@ class VolumeLearningManagerImpl(
      * Управляет корутиной отложенного сохранения.
      * Ждет выполнения условий: время проигрывания >= порога И время с последней правки >= порога.
      */
-    private suspend fun handleSaveTimerStart(event: LearningEvent) {
+    private suspend fun schedulePendingOffsetSave() {
         val currentState = state.value
 
         // Нет правок или не играем — сохранять нечего
@@ -253,19 +301,19 @@ class VolumeLearningManagerImpl(
             thresholdMs - currentState.timeSinceLastManualChangeMs(now)
         )
 
-        handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
+        cancelSaveTimer()
 
         if (remaining <= 0) {
-            handleSavePendingOffset()
+            saveStablePendingOffset()
             return
-        } else {
-            val delay = remaining + TINY_DELAY
-            scheduledSaveJob = scope.launch {
-                logDebug("saveTimer scheduled in ${delay}ms")
-                delay(delay.milliseconds)
-                logDebug("saveTimer fired after ${delay}ms")
-                events.trySend(LearningEvent.SaveIfNeeded)
-            }
+        }
+
+        val delay = remaining + TINY_DELAY
+        scheduledSaveJob = scope.launch {
+            logDebug("saveTimer scheduled in ${delay}ms")
+            delay(delay.milliseconds)
+            logDebug("saveTimer fired after ${delay}ms")
+            events.trySend(LearningEvent.SaveIfNeeded)
         }
     }
 
@@ -273,7 +321,7 @@ class VolumeLearningManagerImpl(
     override fun onVolumeChanged(systemVolume: SystemVolumeSnapshot) {
         logDebug(
             "onVolumeChanged: ${systemVolume.currentVolumeDb}dB " +
-                "(${systemVolume.currentVolume}/${systemVolume.maxVolume})",
+                    "(${systemVolume.currentVolume}/${systemVolume.maxVolume})",
         )
         events.trySend(LearningEvent.VolumeChanged(systemVolume))
     }
@@ -347,8 +395,8 @@ class VolumeLearningManagerImpl(
             events.trySend(LearningEvent.SaveTimerStart)
         } else {
             // На паузе таймеры сохранения сбрасываем, но пробуем сохранить накопленное
-            handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
-            handleSavePendingOffset()
+            cancelSaveTimer()
+            saveStablePendingOffset()
         }
     }
 
@@ -402,9 +450,9 @@ class VolumeLearningManagerImpl(
 
     private fun canLearnVolume(state: VolumeState): Boolean {
         return state.isHeadsetConnected &&
-            state.hasAudioFocus &&
-            state.isPlaying &&
-            state.currentTrackTitle != null
+                state.hasAudioFocus &&
+                state.isPlaying &&
+                state.currentTrackTitle != null
     }
 
     private fun isWithinTrackLearningWindow(
@@ -445,7 +493,7 @@ class VolumeLearningManagerImpl(
     private fun getThresholdMs(): Long =
         learningTimeSeconds() * 1000L
 
-    private suspend fun handleSavePendingOffset() {
+    private suspend fun saveStablePendingOffset() {
         val currentState = state.value
         if (!currentState.hasLearnedOffsetChanged) return
 
@@ -462,7 +510,7 @@ class VolumeLearningManagerImpl(
         if (!currentState.isSavingThresholdReached(now, thresholdMs)) {
             logDebug(
                 "Pending offset is not stable yet: playing=${currentState.activePlayingTimeMs(now)}ms, " +
-                    "sinceChange=${currentState.timeSinceLastManualChangeMs(now)}ms, threshold=${thresholdMs}ms",
+                        "sinceChange=${currentState.timeSinceLastManualChangeMs(now)}ms, threshold=${thresholdMs}ms",
             )
             return
         }
@@ -473,7 +521,6 @@ class VolumeLearningManagerImpl(
             title = title,
             artist = currentState.currentTrackArtist,
             offsetDb = currentState.currentLearnedOffsetDb,
-            id = 0,
         )
         updateState("saveOffsetSuccess") { it.copy(hasLearnedOffsetChanged = false) }
     }
@@ -511,8 +558,8 @@ class VolumeLearningManagerImpl(
             offsetDb = currentState.currentLearnedOffsetDb,
             snapshot = snapshot,
             canApplyRule = currentState.isHeadsetConnected &&
-                currentState.hasAudioFocus &&
-                currentState.isPlaying,
+                    currentState.hasAudioFocus &&
+                    currentState.isPlaying,
         )
         if (targetVolumeDb.isNaN()) return
 
@@ -525,18 +572,23 @@ class VolumeLearningManagerImpl(
         updateState("applyCurrentRule", "trigger=$trigger, target=${targetVolumeDb}dB") {
             it.copy(expectedProgrammaticVolumeDb = targetVolumeDb)
         }
+        emitVolumeCommand(command, trigger)
+    }
+
+    private fun emitVolumeCommand(command: VolumeCommand, trigger: String? = null) {
+        val triggerSuffix = trigger?.let { ", trigger=$it" }.orEmpty()
         logDebug(
-            "volumeCommand: emit target=${targetVolumeDb}dB, " +
-                "generation=${currentState.trackGeneration}, trigger=$trigger",
+            "volumeCommand: emit target=${command.targetVolumeDb}dB, " +
+                    "generation=${command.trackGeneration}$triggerSuffix",
         )
         if (volumeCommandChannel.trySend(command).isFailure) {
-            logDebug("volumeCommand: failed to enqueue generation=${currentState.trackGeneration}")
+            logDebug("volumeCommand: failed to enqueue generation=${command.trackGeneration}")
         }
     }
 
     private suspend fun handleSessionDetached() {
-        handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
-        handleSavePendingOffset()
+        cancelSaveTimer()
+        saveStablePendingOffset()
         updateState("onSessionDetached") { currentState ->
             currentState.copy(
                 currentTrackTitle = null,
@@ -551,13 +603,16 @@ class VolumeLearningManagerImpl(
                 hasLearnedOffsetChanged = false,
                 lastManualVolumeChangeTimeMs = 0,
                 trackGeneration = 0,
+                previousTrackOffsetDb = 0f,
+                volumeJumpProtectionApplied = false,
+                volumeJumpProtectionTargetDb = Float.NaN,
             )
         }
     }
 
     private fun handleServiceStopped() {
         logDebug("resetting state, instanceId=$instanceId")
-        handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
+        cancelSaveTimer()
         updateState("onServiceStopped") { VolumeState() }
     }
 
@@ -572,9 +627,9 @@ class VolumeLearningManagerImpl(
         if (appMode == newMode) return
 
         logDebug("Изменение режима работы с $appMode на $newMode")
-        handleSaveTimerCancel(LearningEvent.SaveTimerCancel)
+        cancelSaveTimer()
         if (appMode == AppMode.LEARNING) {
-            handleSavePendingOffset()
+            saveStablePendingOffset()
         }
         if (state.value.hasLearnedOffsetChanged) {
             updateState("discardPendingOnModeChange") {
@@ -587,10 +642,10 @@ class VolumeLearningManagerImpl(
     private fun logState(event: String, state: VolumeState, extra: String = "") {
         logDebug(
             "state[$event]: track=${state.currentTrackTitle}/${state.currentTrackArtist}, " +
-                "base=${state.baseVolumeDb}dB, offset=${state.currentLearnedOffsetDb}dB, " +
-                "expectedVol=${state.expectedProgrammaticVolumeDb}dB, headset=${state.isHeadsetConnected}, " +
-                "focus=${state.hasAudioFocus}, playing=${state.isPlaying}" +
-                if (extra.isNotEmpty()) ", $extra" else "",
+                    "base=${state.baseVolumeDb}dB, offset=${state.currentLearnedOffsetDb}dB, " +
+                    "expectedVol=${state.expectedProgrammaticVolumeDb}dB, headset=${state.isHeadsetConnected}, " +
+                    "focus=${state.hasAudioFocus}, playing=${state.isPlaying}" +
+                    if (extra.isNotEmpty()) ", $extra" else "",
         )
     }
 
@@ -627,3 +682,8 @@ class VolumeLearningManagerImpl(
         const val MIN_ECHO_TOLERANCE_DB = 0.1f
     }
 }
+
+private data class TrackTarget(
+    val volumeDb: Float = Float.NaN,
+    val jumpProtectionApplied: Boolean = false,
+)

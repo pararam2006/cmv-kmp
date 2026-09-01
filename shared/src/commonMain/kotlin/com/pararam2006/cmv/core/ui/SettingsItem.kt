@@ -8,6 +8,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import com.pararam2006.cmv.ui.theme.CustomMusicVolumeTheme
 
 @Composable
 fun SettingsItem(
@@ -27,5 +29,16 @@ fun SettingsItem(
             modifier = Modifier.weight(1f),
         )
         trailingContent(trailingContentModifier)
+    }
+}
+
+@Composable
+@Preview
+private fun SettingsItemPreview() {
+    CustomMusicVolumeTheme {
+        SettingsItem(
+            title = "Настройка приложения",
+            trailingContent = {},
+        )
     }
 }

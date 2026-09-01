@@ -16,6 +16,7 @@ class SettingsViewModel(
             showSystemVolumeUi = settingsPreferences.showSystemVolumeUi,
             sliderPosition = settingsPreferences.learningTimeSeconds.toFloat(),
             appMode = settingsPreferences.appMode,
+            volumeJumpProtectionEnabled = settingsPreferences.volumeJumpProtectionEnabled,
         )
     )
     override val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -34,6 +35,12 @@ class SettingsViewModel(
         settingsPreferences.appMode = mode
         _uiState.update { it.copy(appMode = mode) }
     }
+
+    override fun setVolumeJumpProtectionEnabled(enabled: Boolean) {
+        settingsPreferences.volumeJumpProtectionEnabled = enabled
+        _uiState.update { it.copy(volumeJumpProtectionEnabled = enabled) }
+    }
+
 }
 
 interface SettingsViewModelInterface {
@@ -41,4 +48,5 @@ interface SettingsViewModelInterface {
     fun setShowSystemVolumeUi(enabled: Boolean)
     fun changeSliderPositionState(newPosition: Float)
     fun setAppMode(mode: AppMode)
+    fun setVolumeJumpProtectionEnabled(enabled: Boolean)
 }

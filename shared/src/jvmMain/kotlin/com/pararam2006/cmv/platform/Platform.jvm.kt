@@ -43,6 +43,7 @@ private object DesktopPreferenceKeys {
     const val LEARNING_TIME_SECONDS = "learning_time_seconds"
     const val APP_MODE = "app_mode"
     const val USER_STOPPED = "user_stopped"
+    const val VOLUME_JUMP_PROTECTION_ENABLED = "flatten_volume"
     const val TRACKS = "tracks"
     const val APPS = "apps"
 }
@@ -73,6 +74,10 @@ actual class SettingsPreferences {
             prefs.put(DesktopPreferenceKeys.APP_MODE, value.name)
             _appModeFlow.value = value
         }
+
+    actual var volumeJumpProtectionEnabled: Boolean
+        get() = prefs.getBoolean(DesktopPreferenceKeys.VOLUME_JUMP_PROTECTION_ENABLED, false)
+        set(value) = prefs.putBoolean(DesktopPreferenceKeys.VOLUME_JUMP_PROTECTION_ENABLED, value)
 
     actual fun getUserStopped(): Boolean =
         prefs.getBoolean(DesktopPreferenceKeys.USER_STOPPED, false)
@@ -163,6 +168,7 @@ val jvmPlatformModule = module {
             saveTrackVolumeUseCase = get(),
             appModeFlow = settings.appModeFlow,
             learningTimeSeconds = { settings.learningTimeSeconds },
+            volumeJumpProtectionEnabled = { settings.volumeJumpProtectionEnabled },
             scope = get(named("AppScope")),
             nowMillis = System::currentTimeMillis,
             logger = ::desktopLog,

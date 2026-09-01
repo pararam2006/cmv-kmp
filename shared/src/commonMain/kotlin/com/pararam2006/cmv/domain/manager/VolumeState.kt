@@ -1,5 +1,7 @@
 package com.pararam2006.cmv.domain.manager
 
+const val VOLUME_JUMP_PROTECTION_THRESHOLD_DB = 6f
+
 data class VolumeState(
     val currentTrackTitle: String? = null,
     val currentTrackArtist: String? = null,
@@ -17,6 +19,9 @@ data class VolumeState(
     val hasAudioFocus: Boolean = true,
     val activeSessionPackageName: String? = null,
     val trackGeneration: Long = 0,
+    val previousTrackOffsetDb: Float = 0f,
+    val volumeJumpProtectionApplied: Boolean = false,
+    val volumeJumpProtectionTargetDb: Float = Float.NaN,
 )
 
 fun VolumeState.activePlayingTimeMs(now: Long): Long {

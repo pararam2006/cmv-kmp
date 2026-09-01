@@ -31,6 +31,7 @@ actual class SettingsPreferences(
         private const val KEY_LEARNING_TIME_SECONDS = "learning_time_seconds"
         private const val KEY_APP_MODE = "app_mode"
         private const val KEY_USER_STOPPED = "user_stopped"
+        private const val KEY_VOLUME_JUMP_PROTECTION_ENABLED = "flatten_volume"
     }
 
     // Basic settings
@@ -78,6 +79,12 @@ actual class SettingsPreferences(
     actual fun isSystemVolumeUiEnabled(): Boolean {
         return prefs.getBoolean(KEY_SHOW_SYSTEM_VOLUME_UI, true)
     }
+
+    actual var volumeJumpProtectionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VOLUME_JUMP_PROTECTION_ENABLED, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_VOLUME_JUMP_PROTECTION_ENABLED, value) }
+        }
 }
 
 actual fun isDynamicColorAvailable(): Boolean {

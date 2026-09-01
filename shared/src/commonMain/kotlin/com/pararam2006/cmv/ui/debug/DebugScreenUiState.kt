@@ -15,5 +15,6 @@ data class DebugScreenUiState(
     val appMode: AppMode = AppMode.LEARNING,
     val learningTimeSeconds: Int = 15,
     val showSystemVolumeUi: Boolean = true,
+    val volumeJumpProtectionEnabled: Boolean = false,
     val observedAtMs: Long = 0,
 )
