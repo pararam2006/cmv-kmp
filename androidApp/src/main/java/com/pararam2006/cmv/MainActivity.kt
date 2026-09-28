@@ -1,6 +1,7 @@
 package com.pararam2006.cmv
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -28,6 +29,12 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         logLifecycle("lifecycle: onDestroy isFinishing=$isFinishing")
         super.onDestroy()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        logLifecycle("onNewIntent action=${intent.action}")
     }
 
     private fun requestNotificationPermission() {
