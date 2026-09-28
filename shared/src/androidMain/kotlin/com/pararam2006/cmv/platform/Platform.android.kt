@@ -159,6 +159,7 @@ class AndroidAppDiscoveryService(
                         iconUri = "android.resource://" + packageName + "/" + applicationInfo.icon,
                         packageName = packageName,
                         name = applicationInfo.name.orEmpty(),
+                        selected = true,
                     )
                 }.getOrNull()
             }
