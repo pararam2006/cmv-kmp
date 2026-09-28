@@ -1,7 +1,12 @@
 package com.pararam2006.cmv.core.navigation
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -51,6 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -222,10 +228,10 @@ fun RootNavGraph(appVersion: String) {
                 NavHost(
                     navController = navController,
                     startDestination = Route.Main,
-                    enterTransition = { slideInHorizontally(initialOffsetX = { 1000 }) + fadeIn() },
-                    exitTransition = { slideOutHorizontally(targetOffsetX = { -1000 }) + fadeOut() },
-                    popEnterTransition = { slideInHorizontally(initialOffsetX = { -1000 }) + fadeIn() },
-                    popExitTransition = { slideOutHorizontally(targetOffsetX = { 1000 }) + fadeOut() },
+                    enterTransition = { horizontalEnterTransition(FORWARD) },
+                    exitTransition = { horizontalExitTransition(FORWARD) },
+                    popEnterTransition = { horizontalEnterTransition(BACKWARD) },
+                    popExitTransition = { horizontalExitTransition(BACKWARD) },
                     modifier = Modifier.weight(1f),
                 ) {
                     composable<Route.Main> {
@@ -321,6 +327,77 @@ fun RootNavGraph(appVersion: String) {
         }
     }
 }
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.horizontalEnterTransition(
+    fallbackDirection: Int,
+): EnterTransition {
+    val direction = navigationDirection(fallbackDirection)
+    return slideInHorizontally(
+        animationSpec = tween(
+            durationMillis = NAVIGATION_ANIMATION_DURATION_MS,
+            easing = FastOutSlowInEasing,
+        ),
+        initialOffsetX = { fullWidth -> fullWidth * direction },
+    ) + fadeIn(
+        animationSpec = tween(durationMillis = NAVIGATION_FADE_DURATION_MS),
+    )
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.horizontalExitTransition(
+    fallbackDirection: Int,
+): ExitTransition {
+    val direction = navigationDirection(fallbackDirection)
+    return slideOutHorizontally(
+        animationSpec = tween(
+            durationMillis = NAVIGATION_ANIMATION_DURATION_MS,
+            easing = FastOutSlowInEasing,
+        ),
+        targetOffsetX = { fullWidth -> -fullWidth * direction },
+    ) + fadeOut(
+        animationSpec = tween(durationMillis = NAVIGATION_FADE_DURATION_MS),
+    )
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.navigationDirection(
+    fallbackDirection: Int,
+): Int {
+    val initialPosition = initialState.destination.navigationPosition()
+    val targetPosition = targetState.destination.navigationPosition()
+    return when {
+        targetPosition.section > initialPosition.section -> FORWARD
+        targetPosition.section < initialPosition.section -> BACKWARD
+        targetPosition.depth > initialPosition.depth -> FORWARD
+        targetPosition.depth < initialPosition.depth -> BACKWARD
+        else -> fallbackDirection
+    }
+}
+
+private fun NavDestination.navigationPosition(): NavigationPosition = when {
+    hasRoute<Route.Main>() -> NavigationPosition(section = MAIN_SECTION, depth = ROOT_DEPTH)
+    hasRoute<Route.ListenerError>() -> NavigationPosition(section = MAIN_SECTION, depth = NESTED_DEPTH)
+    hasRoute<Route.Settings>() -> NavigationPosition(section = SETTINGS_SECTION, depth = ROOT_DEPTH)
+    hasRoute<Route.ChangeMode>() ||
+        hasRoute<Route.SelectApps>() ||
+        hasRoute<Route.Debug>() ->
+        NavigationPosition(section = SETTINGS_SECTION, depth = NESTED_DEPTH)
+    hasRoute<Route.About>() -> NavigationPosition(section = ABOUT_SECTION, depth = ROOT_DEPTH)
+    else -> NavigationPosition(section = MAIN_SECTION, depth = ROOT_DEPTH)
+}
+
+private data class NavigationPosition(
+    val section: Int,
+    val depth: Int,
+)
+
+private const val BACKWARD = -1
+private const val FORWARD = 1
+private const val MAIN_SECTION = 0
+private const val SETTINGS_SECTION = 1
+private const val ABOUT_SECTION = 2
+private const val ROOT_DEPTH = 0
+private const val NESTED_DEPTH = 1
+private const val NAVIGATION_ANIMATION_DURATION_MS = 300
+private const val NAVIGATION_FADE_DURATION_MS = 180
 
 @Composable
 private fun MyTopAppBarActions(
