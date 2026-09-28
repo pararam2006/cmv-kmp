@@ -303,6 +303,8 @@ fun RootNavGraph(appVersion: String) {
                             loadFailed = uiState.loadFailed,
                             onRetry = vm::retry,
                             onToogle = vm::toogleApp,
+                            isServiceEnabled = listenerUiState.isOn,
+                            onStopService = mainViewModel::toggleService,
                         )
                     }
 
