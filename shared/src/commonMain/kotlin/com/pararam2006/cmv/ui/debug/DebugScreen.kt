@@ -24,6 +24,7 @@ import com.pararam2006.cmv.domain.manager.activePlayingTimeMs
 import com.pararam2006.cmv.domain.manager.isSavingThresholdReached
 import com.pararam2006.cmv.domain.manager.timeSinceLastManualChangeMs
 import com.pararam2006.cmv.ui.Dimens
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
@@ -114,10 +115,31 @@ fun DebugScreen(
                     DebugRowData("Минимальный уровень", "0"),
                     DebugRowData("Максимальный уровень", snapshot.maxVolume.toString()),
                     DebugRowData("Звук выключен", snapshot.isMuted.yesNo()),
-                DebugRowData("Текущая громкость", snapshot.currentVolumeDb.db()),
-                    DebugRowData("Минимальная громкость", snapshot.minVolumeDb.db()),
-                    DebugRowData("Максимальная громкость", snapshot.maxVolumeDb.db()),
-                    DebugRowData("Локальный шаг", snapshot.volumeStepDb.db()),
+                    DebugRowData(
+                        "Источник dB-кривой",
+                        dbCurveSource(route?.backendName),
+                        "Это источник расчётной шкалы, а не измерение громкости микрофоном.",
+                    ),
+                    DebugRowData(
+                        "Текущая громкость (dB gain)",
+                        snapshot.currentVolumeDb.dbGain(),
+                        ABSOLUTE_DB_HINT,
+                    ),
+                    DebugRowData(
+                        "Минимальная громкость (dB gain)",
+                        snapshot.minVolumeDb.dbGain(),
+                        ABSOLUTE_DB_HINT,
+                    ),
+                    DebugRowData(
+                        "Максимальная громкость (dB gain)",
+                        snapshot.maxVolumeDb.dbGain(),
+                        ABSOLUTE_DB_HINT,
+                    ),
+                    DebugRowData(
+                        "Локальный шаг (dB/шаг)",
+                        snapshot.volumeStepDb.dbStep(),
+                        "Float: разница между соседними уровнями около текущей громкости.",
+                    ),
                     DebugRowData(
                         "Источник снимка",
                         if (service.systemVolume != null) "платформа" else "алгоритм",
@@ -125,9 +147,10 @@ fun DebugScreen(
                     DebugRowData(
                         "Кривая уровня → dB (${snapshot.volumeDbByStep.size} точек)",
                         snapshot.volumeDbByStep
-                            .mapIndexed { index, db -> "$index:${db.db()}" }
+                            .mapIndexed { index, db -> "$index:${db.dbGain()}" }
                             .chunked(6)
                             .joinToString("\n") { it.joinToString("   ") },
+                        "Каждая точка — Float в dB gain. −∞ обозначается конечным служебным значением −200 dB.",
                     ),
                 )
             },
@@ -140,22 +163,40 @@ fun DebugScreen(
                 DebugRowData("Показывать системный UI", uiState.showSystemVolumeUi.yesNo()),
                 DebugRowData("Защита от скачка", uiState.volumeJumpProtectionEnabled.yesNo()),
                 DebugRowData(
-                    "Порог высокого offset",
-                    VOLUME_JUMP_PROTECTION_THRESHOLD_DB.db(),
+                    "Порог высокого offset (dB Δ)",
+                    VOLUME_JUMP_PROTECTION_THRESHOLD_DB.dbDelta(),
+                    DELTA_DB_HINT,
                 ),
-                DebugRowData("Offset предыдущего трека", learning.previousTrackOffsetDb.db()),
+                DebugRowData(
+                    "Offset предыдущего трека (dB Δ)",
+                    learning.previousTrackOffsetDb.dbDelta(),
+                    DELTA_DB_HINT,
+                ),
                 DebugRowData(
                     "Защита сработала на последнем переходе",
                     learning.volumeJumpProtectionApplied.yesNo(),
                 ),
                 DebugRowData(
-                    "Безопасная целевая громкость",
-                    learning.volumeJumpProtectionTargetDb.db(),
+                    "Безопасная целевая громкость (dB gain)",
+                    learning.volumeJumpProtectionTargetDb.dbGain(),
+                    ABSOLUTE_DB_HINT,
                 ),
                 DebugRowData("Условия обработки выполнены", canProcessVolume.yesNo()),
-                DebugRowData("Базовая громкость", learning.baseVolumeDb.db()),
-                DebugRowData("Текущий offset", learning.currentLearnedOffsetDb.db()),
-                DebugRowData("Ожидаемая программная громкость", learning.expectedProgrammaticVolumeDb.db()),
+                DebugRowData(
+                    "Базовая громкость (dB gain)",
+                    learning.baseVolumeDb.dbGain(),
+                    ABSOLUTE_DB_HINT,
+                ),
+                DebugRowData(
+                    "Текущий offset (dB Δ)",
+                    learning.currentLearnedOffsetDb.dbDelta(),
+                    DELTA_DB_HINT,
+                ),
+                DebugRowData(
+                    "Ожидаемая программная громкость (dB gain)",
+                    learning.expectedProgrammaticVolumeDb.dbGain(),
+                    ABSOLUTE_DB_HINT,
+                ),
                 DebugRowData("Offset изменён пользователем", learning.hasLearnedOffsetChanged.yesNo()),
                 DebugRowData("Порог сохранения достигнут", learning.isSavingThresholdReached(uiState.observedAtMs, thresholdMs).yesNo()),
                 DebugRowData("Активное время трека", activePlayingTimeMs.duration()),
@@ -177,7 +218,7 @@ fun DebugScreen(
     ) {
         item {
             Text(
-                text = "Значения обновляются автоматически. Названия переменных оставлены рядом с описаниями, чтобы их было проще сопоставлять с логами.",
+                text = "Значения обновляются автоматически. dB на этом экране — системный коэффициент усиления или разница уровней, а не физическая громкость dB SPL. Под каждым неоднозначным значением указано, как его читать.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -230,10 +271,19 @@ private fun DebugRow(row: DebugRowData) {
             modifier = Modifier.weight(0.9f),
         )
         SelectionContainer(modifier = Modifier.weight(1.1f)) {
-            Text(
-                text = row.value,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.paddingExtraTiny)) {
+                Text(
+                    text = row.value,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                )
+                row.hint?.let { hint ->
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -246,15 +296,63 @@ private data class DebugSectionData(
 private data class DebugRowData(
     val label: String,
     val value: String,
+    val hint: String? = null,
 )
 
 private fun Boolean.yesNo(): String = if (this) "да" else "нет"
 private fun Any?.debugValue(): String = this?.toString()?.ifBlank { "—" } ?: "—"
 
-private fun Float.db(): String {
-    if (!isFinite()) return "—"
-    val rounded = (this * 100f).roundToInt() / 100f
-    return "$rounded dB"
+private fun Float.dbGain(): String = when {
+    !isFinite() -> "—"
+    this <= SILENCE_FLOOR_DB -> "−∞ dB gain (raw: ${signedDecimal()} Float)"
+    else -> "${signedDecimal()} dB gain"
+}
+
+private fun Float.dbDelta(): String =
+    if (isFinite()) "${signedDecimal()} dB Δ" else "—"
+
+private fun Float.dbStep(): String =
+    if (isFinite()) "${unsignedDecimal()} dB/шаг" else "—"
+
+private fun Float.signedDecimal(): String {
+    val sign = when {
+        this > 0f -> "+"
+        this < 0f -> "−"
+        else -> ""
+    }
+    return sign + abs(this).unsignedDecimal()
+}
+
+private fun Float.unsignedDecimal(): String {
+    val hundredths = (abs(this) * 100f).roundToInt()
+    val whole = hundredths / 100
+    val fraction = (hundredths % 100).toString().padStart(2, '0')
+    return "$whole.$fraction"
+}
+
+private fun dbCurveSource(backendName: String?): String {
+    val backend = backendName.orEmpty().lowercase()
+    return when {
+        "samsung" in backend ->
+            "Android AudioManager + Samsung Fine Volume; промежуточные точки интерполированы по амплитуде"
+
+        "android" in backend ->
+            "Android AudioManager.getStreamVolumeDb() для активного аудиомаршрута"
+
+        "libpulse" in backend ->
+            "libpulse pa_sw_volume_to_dB() для активного sink"
+
+        "wpctl" in backend ->
+            "wpctl scalar + программная dB-кривая PulseAudio"
+
+        else -> "платформенная или резервная dB-кривая"
+    }
 }
 
 private fun Long.duration(): String = "${this / 1_000}.${(this % 1_000) / 100} с ($this мс)"
+
+private const val SILENCE_FLOOR_DB = -200f
+private const val ABSOLUTE_DB_HINT =
+    "Float в dB gain: 0 dB — без изменения сигнала, минус — ослабление, плюс — усиление. Это не dB SPL."
+private const val DELTA_DB_HINT =
+    "Float в dB Δ: разница двух уровней; плюс делает трек громче, минус — тише."
