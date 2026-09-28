@@ -94,6 +94,33 @@ private fun fallbackVolumeDbCurve(maxVolume: Int): List<Float> {
     }
 }
 
+internal fun subdivideVolumeDbCurve(
+    volumeDbByStep: List<Float>,
+    subdivisionsPerStep: Int,
+): List<Float> {
+    require(volumeDbByStep.isNotEmpty())
+    require(subdivisionsPerStep > 0)
+    if (volumeDbByStep.size == 1 || subdivisionsPerStep == 1) return volumeDbByStep
+
+    val maxSubdividedIndex = (volumeDbByStep.lastIndex * subdivisionsPerStep)
+    return List(maxSubdividedIndex + 1) { subdividedIndex ->
+        val lowerIndex = subdividedIndex / subdivisionsPerStep
+        if (lowerIndex == volumeDbByStep.lastIndex) {
+            volumeDbByStep.last()
+        } else {
+            val fraction = (subdividedIndex % subdivisionsPerStep).toFloat() / subdivisionsPerStep
+            val lowerDb = volumeDbByStep[lowerIndex]
+            lowerDb + (volumeDbByStep[lowerIndex + 1] - lowerDb) * fraction
+        }
+    }
+}
+
+internal fun Int.toCoarseVolume(subdivisionsPerStep: Int): Int {
+    require(this >= 0)
+    require(subdivisionsPerStep > 0)
+    return if (this == 0) 0 else (this + subdivisionsPerStep - 1) / subdivisionsPerStep
+}
+
 interface SystemVolumeController {
     val volume: StateFlow<SystemVolumeSnapshot?>
 

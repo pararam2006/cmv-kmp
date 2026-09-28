@@ -365,18 +365,16 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                     }
 
                     val beforeVolume = systemVolumeAdapter.snapshot()
-                    val targetNativeVolume = systemVolumeAdapter.nativeVolumeForDb(command.targetVolumeDb)
                     val shouldShowSystemUi = settingsPreferences.isSystemVolumeUiEnabled()
                     val volumeFlags = if (shouldShowSystemUi) AudioManager.FLAG_SHOW_UI else 0
+                    val targetVolumeLevel = systemVolumeAdapter.setVolumeDb(
+                        volumeDb = command.targetVolumeDb,
+                        flags = volumeFlags,
+                    )
                     logDebug(
                         "Manager requested volume change: before=${beforeVolume.currentVolumeDb}dB, " +
-                            "target=${command.targetVolumeDb}dB/native=$targetNativeVolume, " +
+                            "target=${command.targetVolumeDb}dB/level=$targetVolumeLevel, " +
                             "showSystemUi=$shouldShowSystemUi",
-                    )
-                    audioManager.setStreamVolume(
-                        AudioManager.STREAM_MUSIC,
-                        targetNativeVolume,
-                        volumeFlags,
                     )
                     val afterVolume = systemVolumeAdapter.snapshot()
                     logDebug(

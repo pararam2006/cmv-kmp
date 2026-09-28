@@ -4,6 +4,31 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class SystemVolumeSnapshotTest {
+
+    @Test
+    fun subdividedCurveKeepsAnchorsAndAddsFineSteps() {
+        val curve = subdivideVolumeDbCurve(
+            volumeDbByStep = listOf(-60f, -30f, 0f),
+            subdivisionsPerStep = 10,
+        )
+
+        assertEquals(21, curve.size)
+        assertEquals(-60f, curve[0])
+        assertEquals(-30f, curve[10])
+        assertEquals(0f, curve[20])
+        assertEquals(-45f, curve[5])
+        assertEquals(-15f, curve[15])
+    }
+
+    @Test
+    fun samsungFineVolumeUsesCeilingForThePublicLevel() {
+        assertEquals(0, 0.toCoarseVolume(subdivisionsPerStep = 10))
+        assertEquals(1, 1.toCoarseVolume(subdivisionsPerStep = 10))
+        assertEquals(1, 10.toCoarseVolume(subdivisionsPerStep = 10))
+        assertEquals(2, 11.toCoarseVolume(subdivisionsPerStep = 10))
+        assertEquals(15, 150.toCoarseVolume(subdivisionsPerStep = 10))
+    }
+
     @Test
     fun muteSentinelDoesNotCreateAnInfiniteEchoTolerance() {
         val mutedSnapshot = SystemVolumeSnapshot(
