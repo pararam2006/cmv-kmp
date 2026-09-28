@@ -3,6 +3,8 @@ package com.pararam2006.cmv.platform
 import com.pararam2006.cmv.domain.model.AppInfo
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
+import kotlin.math.log10
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 enum class PlaybackStatus {
@@ -97,20 +99,37 @@ private fun fallbackVolumeDbCurve(maxVolume: Int): List<Float> {
 internal fun subdivideVolumeDbCurve(
     volumeDbByStep: List<Float>,
     subdivisionsPerStep: Int,
+    muteVolumeDb: Float? = null,
 ): List<Float> {
     require(volumeDbByStep.isNotEmpty())
     require(subdivisionsPerStep > 0)
     if (volumeDbByStep.size == 1 || subdivisionsPerStep == 1) return volumeDbByStep
 
+    val amplitudes = volumeDbByStep.map { volumeDb ->
+        if (muteVolumeDb != null && volumeDb <= muteVolumeDb) {
+            0.0
+        } else {
+            10.0.pow(volumeDb / 20.0)
+        }
+    }
     val maxSubdividedIndex = (volumeDbByStep.lastIndex * subdivisionsPerStep)
     return List(maxSubdividedIndex + 1) { subdividedIndex ->
         val lowerIndex = subdividedIndex / subdivisionsPerStep
-        if (lowerIndex == volumeDbByStep.lastIndex) {
-            volumeDbByStep.last()
+        val subdivision = subdividedIndex % subdivisionsPerStep
+        if (lowerIndex == volumeDbByStep.lastIndex || subdivision == 0) {
+            volumeDbByStep[lowerIndex]
         } else {
-            val fraction = (subdividedIndex % subdivisionsPerStep).toFloat() / subdivisionsPerStep
-            val lowerDb = volumeDbByStep[lowerIndex]
-            lowerDb + (volumeDbByStep[lowerIndex + 1] - lowerDb) * fraction
+            val fraction = subdivision.toDouble() / subdivisionsPerStep
+            val lowerAmplitude = amplitudes[lowerIndex]
+            val amplitude = lowerAmplitude +
+                (amplitudes[lowerIndex + 1] - lowerAmplitude) * fraction
+            if (amplitude <= 0.0) {
+                muteVolumeDb ?: volumeDbByStep[lowerIndex]
+            } else {
+                (20.0 * log10(amplitude)).toFloat().let { interpolatedDb ->
+                    muteVolumeDb?.let { maxOf(it, interpolatedDb) } ?: interpolatedDb
+                }
+            }
         }
     }
 }

@@ -50,7 +50,11 @@ class AndroidSystemVolumeAdapter(
     private fun snapshot(scale: VolumeScale): SystemVolumeSnapshot {
         val publicCurve = publicVolumeDbCurve()
         val curve = if (scale.isFine) {
-            subdivideVolumeDbCurve(publicCurve, SAMSUNG_FINE_SUBDIVISIONS)
+            subdivideVolumeDbCurve(
+                volumeDbByStep = publicCurve,
+                subdivisionsPerStep = SAMSUNG_FINE_SUBDIVISIONS,
+                muteVolumeDb = MIN_VOLUME_DB,
+            )
         } else {
             publicCurve
         }

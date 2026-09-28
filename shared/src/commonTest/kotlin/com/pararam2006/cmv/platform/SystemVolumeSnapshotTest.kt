@@ -6,18 +6,19 @@ import kotlin.test.assertEquals
 class SystemVolumeSnapshotTest {
 
     @Test
-    fun subdividedCurveKeepsAnchorsAndAddsFineSteps() {
+    fun subdividedCurveInterpolatesAmplitudeAndKeepsDbAnchors() {
         val curve = subdivideVolumeDbCurve(
-            volumeDbByStep = listOf(-60f, -30f, 0f),
+            volumeDbByStep = listOf(-200f, -42f, -39f),
             subdivisionsPerStep = 10,
+            muteVolumeDb = -200f,
         )
 
         assertEquals(21, curve.size)
-        assertEquals(-60f, curve[0])
-        assertEquals(-30f, curve[10])
-        assertEquals(0f, curve[20])
-        assertEquals(-45f, curve[5])
-        assertEquals(-15f, curve[15])
+        assertEquals(-200f, curve[0])
+        assertEquals(-42f, curve[10])
+        assertEquals(-39f, curve[20])
+        assertEquals(-62f, curve[1], absoluteTolerance = 0.05f)
+        assertEquals(-40.37f, curve[15], absoluteTolerance = 0.05f)
     }
 
     @Test
