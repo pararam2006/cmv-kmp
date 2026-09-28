@@ -289,7 +289,9 @@ fun RootNavGraph(appVersion: String) {
 
                         ChangeModeScreen(
                             mode = uiState.mode,
-                            onModeChange = vm::setAppMode
+                            onModeChange = vm::setAppMode,
+                            isServiceEnabled = listenerUiState.isOn,
+                            onStopService = mainViewModel::toggleService,
                         )
                     }
 

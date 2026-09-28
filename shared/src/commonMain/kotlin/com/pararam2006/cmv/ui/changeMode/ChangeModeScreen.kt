@@ -13,9 +13,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.pararam2006.cmv.core.ui.ServiceEnabledOverlay
 import com.pararam2006.cmv.domain.model.AppMode
 import com.pararam2006.cmv.ui.Dimens
 import custommusicvolume.shared.generated.resources.Res
@@ -32,6 +34,8 @@ import org.jetbrains.compose.resources.stringResource
 fun ChangeModeScreen(
     mode: AppMode,
     onModeChange: (AppMode) -> Unit,
+    isServiceEnabled: Boolean,
+    onStopService: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val icon: Painter
@@ -58,48 +62,56 @@ fun ChangeModeScreen(
         }
     }
 
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .blur(if (isServiceEnabled) 15.dp else 0.dp),
+            contentAlignment = Alignment.Center
         ) {
-            IconButton(
-                onClick = changeAction,
-                modifier = Modifier.size(modeButtonSize)
-            ) {
-                Icon(
-                    painter = icon,
-                    contentDescription = iconContentDescription,
-                    modifier = Modifier.size(modeButtonIconSize)
-                )
-            }
-
             Column(
-                modifier = Modifier
-                    .padding(top = Dimens.paddingSmall),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Dimens.paddingSmall)
             ) {
-                Text(
-                    text = modeTitle,
-                    style = MaterialTheme.typography.titleLarge,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = modeDescription,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
+                IconButton(
+                    onClick = changeAction,
+                    modifier = Modifier.size(modeButtonSize)
+                ) {
+                    Icon(
+                        painter = icon,
+                        contentDescription = iconContentDescription,
+                        modifier = Modifier.size(modeButtonIconSize)
+                    )
+                }
 
-        Text(
-            text = "(Нажмите на иконку для изменения)",
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = Dimens.paddingMedium)
-        )
+                Column(
+                    modifier = Modifier
+                        .padding(top = Dimens.paddingSmall),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Dimens.paddingSmall)
+                ) {
+                    Text(
+                        text = modeTitle,
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = modeDescription,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Text(
+                text = "(Нажмите на иконку для изменения)",
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = Dimens.paddingMedium)
+            )
+        }
+        
+        if (isServiceEnabled) {
+            ServiceEnabledOverlay(onStopService = onStopService)
+        }
     }
 }
