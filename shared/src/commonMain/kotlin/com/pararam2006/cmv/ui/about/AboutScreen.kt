@@ -44,6 +44,9 @@ import custommusicvolume.shared.generated.resources.about_faq_a8
 import custommusicvolume.shared.generated.resources.about_faq_a9
 import custommusicvolume.shared.generated.resources.about_faq_a10
 import custommusicvolume.shared.generated.resources.about_faq_a11
+import custommusicvolume.shared.generated.resources.about_faq_a12
+import custommusicvolume.shared.generated.resources.about_faq_a13
+import custommusicvolume.shared.generated.resources.about_faq_a14
 import custommusicvolume.shared.generated.resources.about_faq_q1
 import custommusicvolume.shared.generated.resources.about_faq_q2
 import custommusicvolume.shared.generated.resources.about_faq_q3
@@ -55,6 +58,9 @@ import custommusicvolume.shared.generated.resources.about_faq_q8
 import custommusicvolume.shared.generated.resources.about_faq_q9
 import custommusicvolume.shared.generated.resources.about_faq_q10
 import custommusicvolume.shared.generated.resources.about_faq_q11
+import custommusicvolume.shared.generated.resources.about_faq_q12
+import custommusicvolume.shared.generated.resources.about_faq_q13
+import custommusicvolume.shared.generated.resources.about_faq_q14
 import custommusicvolume.shared.generated.resources.about_faq_title
 import custommusicvolume.shared.generated.resources.about_screen_description
 import custommusicvolume.shared.generated.resources.app_name
@@ -162,6 +168,21 @@ fun AboutScreen(
             FaqItem(
                 question = stringResource(Res.string.about_faq_q11),
                 answer = stringResource(Res.string.about_faq_a11)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q12),
+                answer = stringResource(Res.string.about_faq_a12)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q13),
+                answer = stringResource(Res.string.about_faq_a13)
+            )
+
+            FaqItem(
+                question = stringResource(Res.string.about_faq_q14),
+                answer = stringResource(Res.string.about_faq_a14)
             )
         }
 
