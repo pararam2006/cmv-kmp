@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Build
@@ -58,6 +59,8 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
+    private val controllerSubscriptions =
+        mutableMapOf<MediaSession.Token, ControllerSubscription>()
     private var rebindJob: Job? = null
     @Volatile
     private var selectedPackageNames: Set<String> = emptySet()
@@ -188,25 +191,6 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         }
     }
 
-    // Callback for metadata changes on the active media controller
-    private val metadataCallback = object : MediaController.Callback() {
-        override fun onMetadataChanged(metadata: MediaMetadata?) {
-            logDebug("MediaController.onMetadataChanged()")
-            if (metadata == null) {
-                clearCurrentTrackState()
-                playbackCoordinator.onSessionDetached()
-            } else {
-                handleMetadata(metadata)
-            }
-        }
-
-        override fun onPlaybackStateChanged(state: PlaybackState?) {
-            val isPlaying = state?.state == PlaybackState.STATE_PLAYING
-            logDebug("MediaController.onPlaybackStateChanged(), isPlaying=$isPlaying")
-            playbackCoordinator.onPlaybackStateChanged(isPlaying)
-        }
-    }
-
     // Listener for active session changes (e.g. user switches from Spotify to YandexMusic)
     private val sessionsChangedListener =
         MediaSessionManager.OnActiveSessionsChangedListener(::handleActiveSessionsChanged)
@@ -225,32 +209,161 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     private fun handleActiveSessionsChanged(controllers: List<MediaController>?) {
         logDebug("Active sessions changed, count=${controllers?.size ?: 0}")
         controllers?.forEach { c ->
-            logDebug("  Session: ${c.packageName}, tag=${c.sessionToken}")
+            logDebug(
+                "  Session: ${c.packageName}, state=${c.playbackState?.state}, " +
+                    "tag=${c.sessionToken}",
+            )
         }
 
-        // Unregister from the old controller
-        activeController?.unregisterCallback(metadataCallback)
-        activeController = null
+        val selectedControllers = controllers
+            .orEmpty()
+            .filter { it.packageName in selectedPackageNames }
+        synchronizeControllerSubscriptions(selectedControllers)
 
-        // Register on the first (most recent) active controller
-        val controller = controllers?.firstOrNull { it.packageName in selectedPackageNames }
-        if (controller != null) {
-            logDebug("Attaching to controller: ${controller.packageName}")
-            activeController = controller
-            updateActiveSessionPackageName()
-            controller.registerCallback(metadataCallback, mainHandler)
+        val currentToken = activeController?.sessionToken
+        val currentController = selectedControllers.firstOrNull {
+            it.sessionToken == currentToken
+        }
+        val preferredController = selectedControllers.firstOrNull { it.isPlaying() }
+            ?: currentController
+            ?: selectedControllers.firstOrNull()
 
-            // Also process current metadata immediately
-            val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
-            playbackCoordinator.onPlaybackStateChanged(isPlaying)
-            controller.metadata?.let { handleMetadata(it) }
-        } else {
-            updateActiveSessionPackageName()
-            clearCurrentTrackState()
-            playbackCoordinator.onSessionDetached()
-            logDebug("No selected active media sessions")
+        if (preferredController == null) {
+            detachActiveController("No selected active media sessions")
+            return
+        }
+
+        activateController(
+            controller = preferredController,
+            processMetadata = true,
+            reason = "active sessions changed",
+        )
+    }
+
+    private fun synchronizeControllerSubscriptions(controllers: List<MediaController>) {
+        val availableTokens = controllers.mapTo(mutableSetOf()) { it.sessionToken }
+        val removedTokens = controllerSubscriptions.keys - availableTokens
+        removedTokens.forEach { token ->
+            controllerSubscriptions.remove(token)?.let(::unregisterControllerSubscription)
+        }
+
+        controllers.forEach { controller ->
+            if (controller.sessionToken !in controllerSubscriptions) {
+                val callback = createControllerCallback(controller)
+                controller.registerCallback(callback, mainHandler)
+                controllerSubscriptions[controller.sessionToken] = ControllerSubscription(
+                    controller = controller,
+                    callback = callback,
+                )
+                logDebug("Subscribed to controller: ${controller.packageName}")
+            }
         }
     }
+
+    private fun createControllerCallback(controller: MediaController) =
+        object : MediaController.Callback() {
+            override fun onMetadataChanged(metadata: MediaMetadata?) {
+                logDebug("MediaController.onMetadataChanged(): ${controller.packageName}")
+                if (metadata == null) {
+                    if (controller.isActiveController()) {
+                        clearCurrentTrackState()
+                        playbackCoordinator.onSessionDetached()
+                    }
+                    return
+                }
+
+                if (controller.isPlaying()) {
+                    activateController(
+                        controller = controller,
+                        processMetadata = false,
+                        reason = "playing controller metadata changed",
+                    )
+                }
+                if (controller.isActiveController()) {
+                    handleMetadata(metadata, controller)
+                }
+            }
+
+            override fun onPlaybackStateChanged(state: PlaybackState?) {
+                val isPlaying = state?.state == PlaybackState.STATE_PLAYING
+                logDebug(
+                    "MediaController.onPlaybackStateChanged(): ${controller.packageName}, " +
+                        "isPlaying=$isPlaying",
+                )
+                if (isPlaying) {
+                    val controllerChanged = activateController(
+                        controller = controller,
+                        processMetadata = false,
+                        reason = "controller started playing",
+                    )
+                    if (controllerChanged) {
+                        controller.metadata?.let { handleMetadata(it, controller) }
+                    }
+                } else if (controller.isActiveController()) {
+                    val replacement = controllerSubscriptions.values
+                        .asSequence()
+                        .map { it.controller }
+                        .firstOrNull { candidate ->
+                            candidate.sessionToken != controller.sessionToken && candidate.isPlaying()
+                        }
+                    if (replacement != null) {
+                        activateController(
+                            controller = replacement,
+                            processMetadata = true,
+                            reason = "active controller stopped",
+                        )
+                    } else {
+                        playbackCoordinator.onPlaybackStateChanged(false)
+                    }
+                }
+            }
+        }
+
+    private fun activateController(
+        controller: MediaController,
+        processMetadata: Boolean,
+        reason: String,
+    ): Boolean {
+        val controllerChanged = !controller.isActiveController()
+        if (controllerChanged) {
+            activeController = controller
+            updateActiveSessionPackageName()
+            logDebug("Active controller: ${controller.packageName}, reason=$reason")
+        }
+
+        val isPlaying = controller.isPlaying()
+        playbackCoordinator.onPlaybackStateChanged(isPlaying)
+        if (processMetadata) {
+            controller.metadata?.let { handleMetadata(it, controller) }
+        }
+        return controllerChanged
+    }
+
+    private fun detachActiveController(reason: String) {
+        if (activeController != null) {
+            activeController = null
+            updateActiveSessionPackageName()
+        }
+        clearCurrentTrackState()
+        playbackCoordinator.onSessionDetached()
+        logDebug(reason)
+    }
+
+    private fun unregisterControllerSubscription(subscription: ControllerSubscription) {
+        runCatching { subscription.controller.unregisterCallback(subscription.callback) }
+            .onFailure { error ->
+                Timber.tag(TAG).w(
+                    error,
+                    "Failed to unsubscribe from ${subscription.controller.packageName}",
+                )
+            }
+    }
+
+    private fun MediaController.isPlaying(): Boolean =
+        playbackState?.state == PlaybackState.STATE_PLAYING
+
+    private fun MediaController.isActiveController(): Boolean =
+        sessionToken == activeController?.sessionToken
 
     private fun updateForegroundNotification(isHeadset: Boolean) {
         val stopIntent = Intent(this, MyNotificationListenerService::class.java).apply {
@@ -525,26 +638,9 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                 logDebug("Active session: ${c.packageName}")
             }
 
-            val controller = activeSessions?.firstOrNull { it.packageName in selectedPackageNames }
-            if (controller != null) {
-                logDebug("Attaching to current controller: ${controller.packageName}")
-                activeController = controller
-                updateActiveSessionPackageName()
-                controller.registerCallback(metadataCallback, mainHandler)
-
-                playbackCoordinator.resetCurrentTrack()
-                val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
-                playbackCoordinator.onPlaybackStateChanged(isPlaying)
-                logDebug("onListenerConnected: current track reset to force volume re-apply")
-
-                controller.metadata?.let { handleMetadata(it) }
-            }
-            else {
-                updateActiveSessionPackageName()
-                clearCurrentTrackState()
-                playbackCoordinator.onSessionDetached()
-                logDebug("No selected active media sessions on connect")
-            }
+            playbackCoordinator.resetCurrentTrack()
+            handleActiveSessionsChanged(activeSessions)
+            logDebug("onListenerConnected: current track reset to force volume re-apply")
         } catch (e: Exception) {
             serviceStateHolder.setRuntimeState(
                 PlaybackRuntimeState(PlaybackRuntimeStatus.ERROR, e.message),
@@ -574,12 +670,11 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         broadcastState()
     }
 
-    private fun handleMetadata(metadata: MediaMetadata) {
+    private fun handleMetadata(metadata: MediaMetadata, controller: MediaController) {
         val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
         val artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM)
-        val pkg = activeController?.packageName ?: "unknown"
-        updateActiveSessionPackageName()
+        val pkg = controller.packageName
         serviceStateHolder.setCurrentTrackTitle(title)
         serviceStateHolder.setCurrentTrackArtist(artist)
 
@@ -612,7 +707,8 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         try {
             val hadController = activeController != null
             val hadSessionManager = sessionManager != null
-            activeController?.unregisterCallback(metadataCallback)
+            controllerSubscriptions.values.forEach(::unregisterControllerSubscription)
+            controllerSubscriptions.clear()
             activeController = null
             updateActiveSessionPackageName()
             clearCurrentTrackState()
@@ -665,3 +761,8 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     }
 
 }
+
+private data class ControllerSubscription(
+    val controller: MediaController,
+    val callback: MediaController.Callback,
+)
