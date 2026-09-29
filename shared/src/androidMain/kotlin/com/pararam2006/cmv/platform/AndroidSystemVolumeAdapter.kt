@@ -50,11 +50,20 @@ class AndroidSystemVolumeAdapter(
     private fun snapshot(scale: VolumeScale): SystemVolumeSnapshot {
         val publicCurve = publicVolumeDbCurve()
         val curve = if (scale.isFine) {
-            subdivideVolumeDbCurve(
-                volumeDbByStep = publicCurve,
-                subdivisionsPerStep = SAMSUNG_FINE_SUBDIVISIONS,
-                muteVolumeDb = MIN_VOLUME_DB,
-            )
+            samsungFineVolumeApi.getVolumeTable()
+                ?.takeIf { it.size == scale.maxVolume - scale.minVolume + 1 }
+                ?.let { amplitudes ->
+                    amplitudeVolumeCurveToDb(
+                        amplitudes = amplitudes,
+                        maxVolumeDb = publicCurve.last(),
+                        muteVolumeDb = MIN_VOLUME_DB,
+                    )
+                }
+                ?: subdivideVolumeDbCurve(
+                    volumeDbByStep = publicCurve,
+                    subdivisionsPerStep = SAMSUNG_FINE_SUBDIVISIONS,
+                    muteVolumeDb = MIN_VOLUME_DB,
+                )
         } else {
             publicCurve
         }
@@ -116,17 +125,18 @@ class AndroidSystemVolumeAdapter(
         val minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_MUSIC)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val deviceType = activeMediaDeviceType()
-        var previousDb = MIN_VOLUME_DB
-        return List(maxVolume - minVolume + 1) { index ->
+        val reportedValues = List(maxVolume - minVolume + 1) { index ->
             val nativeIndex = (minVolume + index).coerceAtMost(maxVolume)
-            val reportedDb = audioManager.getStreamVolumeDb(
+            audioManager.getStreamVolumeDb(
                 AudioManager.STREAM_MUSIC,
                 nativeIndex,
                 deviceType,
             )
-            val finiteDb = if (reportedDb.isFinite()) reportedDb else MIN_VOLUME_DB
-            finiteDb.coerceAtLeast(previousDb).also { previousDb = it }
         }
+        return normalizeReportedVolumeDbCurve(
+            reportedValues = reportedValues,
+            muteVolumeDb = MIN_VOLUME_DB,
+        )
     }
 
     fun routeSnapshot(): AudioRouteSnapshot? {
@@ -222,6 +232,8 @@ private class SamsungFineVolumeApi(
     private val setFineVolume = findMethod("setFineVolume", intType, intType, intType, intType)
     private val semGetFineVolume = findMethod("semGetFineVolume", intType)
     private val semSetFineVolume = findMethod("semSetFineVolume", intType, intType, intType)
+    private val getFloatVolumeTable = findMethod("getFloatVolumeTable")
+    private var cachedVolumeTable: List<Float>? = null
     private var lastFailure: String? = null
 
     val diagnostic: String
@@ -284,6 +296,16 @@ private class SamsungFineVolumeApi(
         }
         lastFailure = result.exceptionOrNull()?.toDiagnosticMessage()
         return result.isSuccess
+    }
+
+    fun getVolumeTable(): List<Float>? {
+        cachedVolumeTable?.let { return it }
+        val method = getFloatVolumeTable ?: return null
+        val result = runCatching {
+            (method.invoke(audioManager) as? FloatArray)?.toList()
+        }
+        lastFailure = result.exceptionOrNull()?.toDiagnosticMessage()
+        return result.getOrNull()?.also { cachedVolumeTable = it }
     }
 
     private fun findMethod(name: String, vararg parameterTypes: Class<*>) = runCatching {

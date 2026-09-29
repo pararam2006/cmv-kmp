@@ -14,12 +14,15 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import androidx.core.app.NotificationCompat
 import com.pararam2006.cmv.R
 import com.pararam2006.cmv.core.Constants.LAUNCHING_TIMEOUT
 import com.pararam2006.cmv.core.Constants.SMALL_DELAY
+import com.pararam2006.cmv.domain.model.AppMode
 import com.pararam2006.cmv.domain.repository.HeadphonesRepository
 import com.pararam2006.cmv.platform.AndroidSystemVolumeAdapter
 import com.pararam2006.cmv.domain.service.PlaybackTrackingCoordinator
@@ -52,11 +55,14 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
     private val systemVolumeAdapter by lazy { AndroidSystemVolumeAdapter(audioManager) }
     private val selectedAppsInfoFlow by lazy { playbackCoordinator.selectedApps }
     private val isHeadsetFlow by lazy { headphonesDetector.isHeadsetFlow }
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
     private var rebindJob: Job? = null
     @Volatile
     private var selectedPackageNames: Set<String> = emptySet()
+    @Volatile
+    private var isDestroyed = false
 
     companion object {
         private const val TAG = "CMV.Service"
@@ -86,7 +92,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                     )
                     runCatching { sessionManager?.getActiveSessions(componentName) }
                         .getOrNull()
-                        ?.let(sessionsChangedListener::onActiveSessionsChanged)
+                        ?.let(::dispatchActiveSessionsChanged)
                 }
             }
         }
@@ -203,35 +209,48 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
 
     // Listener for active session changes (e.g. user switches from Spotify to YandexMusic)
     private val sessionsChangedListener =
-        MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
-            logDebug("Active sessions changed, count=${controllers?.size ?: 0}")
-            controllers?.forEach { c ->
-                logDebug("  Session: ${c.packageName}, tag=${c.sessionToken}")
-            }
+        MediaSessionManager.OnActiveSessionsChangedListener(::handleActiveSessionsChanged)
 
-            // Unregister from the old controller
-            activeController?.unregisterCallback(metadataCallback)
-            activeController = null
-
-            // Register on the first (most recent) active controller
-            val controller = controllers?.firstOrNull { it.packageName in selectedPackageNames }
-            if (controller != null) {
-                logDebug("Attaching to controller: ${controller.packageName}")
-                activeController = controller
-                updateActiveSessionPackageName()
-                controller.registerCallback(metadataCallback)
-
-                // Also process current metadata immediately
-                val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
-                playbackCoordinator.onPlaybackStateChanged(isPlaying)
-                controller.metadata?.let { handleMetadata(it) }
-            } else {
-                updateActiveSessionPackageName()
-                clearCurrentTrackState()
-                playbackCoordinator.onSessionDetached()
-                logDebug("No selected active media sessions")
+    private fun dispatchActiveSessionsChanged(controllers: List<MediaController>) {
+        if (isDestroyed) return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            handleActiveSessionsChanged(controllers)
+        } else {
+            mainHandler.post {
+                if (!isDestroyed) handleActiveSessionsChanged(controllers)
             }
         }
+    }
+
+    private fun handleActiveSessionsChanged(controllers: List<MediaController>?) {
+        logDebug("Active sessions changed, count=${controllers?.size ?: 0}")
+        controllers?.forEach { c ->
+            logDebug("  Session: ${c.packageName}, tag=${c.sessionToken}")
+        }
+
+        // Unregister from the old controller
+        activeController?.unregisterCallback(metadataCallback)
+        activeController = null
+
+        // Register on the first (most recent) active controller
+        val controller = controllers?.firstOrNull { it.packageName in selectedPackageNames }
+        if (controller != null) {
+            logDebug("Attaching to controller: ${controller.packageName}")
+            activeController = controller
+            updateActiveSessionPackageName()
+            controller.registerCallback(metadataCallback, mainHandler)
+
+            // Also process current metadata immediately
+            val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+            playbackCoordinator.onPlaybackStateChanged(isPlaying)
+            controller.metadata?.let { handleMetadata(it) }
+        } else {
+            updateActiveSessionPackageName()
+            clearCurrentTrackState()
+            playbackCoordinator.onSessionDetached()
+            logDebug("No selected active media sessions")
+        }
+    }
 
     private fun updateForegroundNotification(isHeadset: Boolean) {
         val stopIntent = Intent(this, MyNotificationListenerService::class.java).apply {
@@ -243,13 +262,23 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val appModeFlow = settingsPreferences.appModeFlow
+        var mode: AppMode = settingsPreferences.appMode
 
-        val text = if (isHeadset) "Умный режим включён" else "Спит (наушники отключены)"
+        serviceScope.launch {
+            appModeFlow.collect { appMode ->
+                mode = appMode
+            }
+        }
+        val notificationText = when {
+            isHeadset -> if (mode == AppMode.LEARNING) "Включено обучение" else "Включена регулировка"
+            else -> "Наушники отключены - сервис неактивен"
+        }
 
         val notification =
             NotificationCompat.Builder(this, "CHANNEL_ID")
 //                .setContentTitle("CMV")
-                .setContentText(text)
+                .setContentText(notificationText)
                 .setSmallIcon(R.drawable.outline_edit_audio_24)
                 .addAction(R.drawable.outline_mode_off_on_24, "Выключить", stopPendingIntent)
                 .setOngoing(true)
@@ -296,6 +325,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
 
     override fun onCreate() {
         logLifecycle("START instanceId=$instanceId")
+        isDestroyed = false
         super.onCreate()
         serviceStateHolder.setRuntimeState(PlaybackRuntimeState(PlaybackRuntimeStatus.STARTING))
 
@@ -482,7 +512,9 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
             val componentName = ComponentName(this, MyNotificationListenerService::class.java)
 
             sessionManager?.addOnActiveSessionsChangedListener(
-                sessionsChangedListener, componentName
+                sessionsChangedListener,
+                componentName,
+                mainHandler,
             )
             logDebug("MediaSessionManager listener registered")
 
@@ -498,7 +530,7 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
                 logDebug("Attaching to current controller: ${controller.packageName}")
                 activeController = controller
                 updateActiveSessionPackageName()
-                controller.registerCallback(metadataCallback)
+                controller.registerCallback(metadataCallback, mainHandler)
 
                 playbackCoordinator.resetCurrentTrack()
                 val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
@@ -596,6 +628,10 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
 
     override fun onDestroy() {
         logLifecycle("START instanceId=$instanceId")
+        isDestroyed = true
+        serviceScope.cancel()
+        logLifecycle("serviceScope cancelled")
+        mainHandler.removeCallbacksAndMessages(null)
         serviceStateHolder.clearState()
         serviceStateHolder.setConnected(false)
         try {
@@ -606,8 +642,6 @@ class MyNotificationListenerService : NotificationListenerService(), KoinCompone
         }
         cleanupMediaSession()
         playbackCoordinator.onServiceStopped()
-        serviceScope.cancel()
-        logLifecycle("serviceScope cancelled")
         broadcastState()
         super.onDestroy()
         logDebug("COMPLETE instanceId=$instanceId")

@@ -70,8 +70,18 @@ data class SystemVolumeSnapshot(
     fun dbForNativeVolume(volume: Int): Float =
         volumeDbByStep[volume.coerceIn(0, maxVolume)]
 
-    fun nativeVolumeForDb(volumeDb: Float): Int =
-        volumeDbByStep.indices.minByOrNull { abs(volumeDbByStep[it] - volumeDb) } ?: 0
+    fun nativeVolumeForDb(volumeDb: Float): Int {
+        if (!volumeDb.isFinite()) return currentVolume.coerceIn(0, maxVolume)
+
+        val targetDb = clampDb(volumeDb)
+        return volumeDbByStep.indices.minWithOrNull(
+            compareBy<Int> { abs(volumeDbByStep[it] - targetDb) }
+                // OEM curves can contain repeated dB values. Choosing the first
+                // equal value would turn a harmless correction into a jump to
+                // the edge of the native scale.
+                .thenBy { abs(it - currentVolume) },
+        ) ?: currentVolume.coerceIn(0, maxVolume)
+    }
 
     fun clampDb(volumeDb: Float): Float = volumeDb.coerceIn(minVolumeDb, maxVolumeDb)
 
@@ -134,11 +144,65 @@ internal fun subdivideVolumeDbCurve(
     }
 }
 
+internal fun amplitudeVolumeCurveToDb(
+    amplitudes: List<Float>,
+    maxVolumeDb: Float = 0f,
+    muteVolumeDb: Float = -200f,
+): List<Float>? {
+    if (amplitudes.isEmpty() || !maxVolumeDb.isFinite() || !muteVolumeDb.isFinite()) return null
+    if (amplitudes.any { !it.isFinite() || it < 0f }) return null
+    if (amplitudes.zipWithNext().any { (lower, upper) -> lower > upper }) return null
+
+    val maxAmplitude = amplitudes.last()
+    if (maxAmplitude <= 0f) return null
+
+    return amplitudes.map { amplitude ->
+        if (amplitude <= 0f) {
+            muteVolumeDb
+        } else {
+            (20.0 * log10(amplitude.toDouble() / maxAmplitude) + maxVolumeDb)
+                .toFloat()
+                .coerceAtLeast(muteVolumeDb)
+        }
+    }
+}
+
+internal fun normalizeReportedVolumeDbCurve(
+    reportedValues: List<Float>,
+    muteVolumeDb: Float = -200f,
+): List<Float> {
+    require(reportedValues.isNotEmpty())
+
+    val looksLikeLinearAmplitude = reportedValues.all(Float::isFinite) &&
+        reportedValues.all { it in 0f..MAX_LINEAR_AMPLITUDE } &&
+        reportedValues.zipWithNext().all { (lower, upper) -> lower <= upper } &&
+        reportedValues.first() <= MAX_MUTED_AMPLITUDE &&
+        reportedValues.last() >= MIN_NORMALIZED_MAX_AMPLITUDE
+
+    if (looksLikeLinearAmplitude) {
+        amplitudeVolumeCurveToDb(
+            amplitudes = reportedValues,
+            maxVolumeDb = 0f,
+            muteVolumeDb = muteVolumeDb,
+        )?.let { return it }
+    }
+
+    var previousDb = muteVolumeDb
+    return reportedValues.map { reportedValue ->
+        val finiteDb = if (reportedValue.isFinite()) reportedValue else muteVolumeDb
+        finiteDb.coerceAtLeast(previousDb).also { previousDb = it }
+    }
+}
+
 internal fun Int.toCoarseVolume(subdivisionsPerStep: Int): Int {
     require(this >= 0)
     require(subdivisionsPerStep > 0)
     return if (this == 0) 0 else (this + subdivisionsPerStep - 1) / subdivisionsPerStep
 }
+
+private const val MAX_LINEAR_AMPLITUDE = 1.5f
+private const val MAX_MUTED_AMPLITUDE = 0.001f
+private const val MIN_NORMALIZED_MAX_AMPLITUDE = 0.5f
 
 interface SystemVolumeController {
     val volume: StateFlow<SystemVolumeSnapshot?>

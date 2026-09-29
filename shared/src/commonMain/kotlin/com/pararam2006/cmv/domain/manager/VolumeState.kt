@@ -22,6 +22,8 @@ data class VolumeState(
     val previousTrackOffsetDb: Float = 0f,
     val volumeJumpProtectionApplied: Boolean = false,
     val volumeJumpProtectionTargetDb: Float = Float.NaN,
+    val volumeJumpProtectionPending: Boolean = false,
+    val lastSessionDetachedTimeMs: Long = 0,
 )
 
 fun VolumeState.activePlayingTimeMs(now: Long): Long {

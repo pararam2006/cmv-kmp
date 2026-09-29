@@ -223,6 +223,86 @@ class VolumeLearningManagerImplTest {
     }
 
     @Test
+    fun resetsCarriedBoostAfterTransientSessionDetachWhenPlaybackResumes() = runTest {
+        val manager = VolumeLearningManagerImpl(
+            saveTrackVolumeUseCase = SaveTrackVolumeUseCase(FakeTrackVolumeRepository()),
+            appModeFlow = MutableStateFlow(AppMode.LEARNING),
+            learningTimeSeconds = { 15 },
+            volumeJumpProtectionEnabled = { true },
+            scope = backgroundScope,
+            nowMillis = { 1_000L },
+        )
+        runCurrent()
+
+        manager.onHeadsetStateChanged(true)
+        manager.onAudioFocusChanged(true)
+        manager.onPlaybackStateChanged(true)
+        val boostCommand = async { manager.volumeCommands.first() }
+        manager.onTrackChanged("Quiet track", "Artist", 9f, VolumeOffsetModel.DECIBEL, snapshot(40, 100), 16)
+        runCurrent()
+        assertEquals(49f, boostCommand.await().targetVolumeDb)
+
+        manager.onVolumeChanged(snapshot(49, 100))
+        manager.onPlaybackStateChanged(false)
+        manager.onSessionDetached()
+        runCurrent()
+        assertEquals(9f, manager.debugState.value.previousTrackOffsetDb)
+
+        manager.onTrackChanged("Loud track", "Artist", 0f, VolumeOffsetModel.DECIBEL, snapshot(49, 100), 17)
+        runCurrent()
+        assertTrue(manager.debugState.value.volumeJumpProtectionApplied)
+        assertTrue(manager.debugState.value.volumeJumpProtectionPending)
+        assertTrue(manager.debugState.value.expectedProgrammaticVolumeDb.isNaN())
+
+        val protectionCommand = async { manager.volumeCommands.first() }
+        manager.onAudioFocusChanged(false)
+        manager.onAudioFocusChanged(true)
+        runCurrent()
+        assertFalse(protectionCommand.isCompleted)
+
+        manager.onPlaybackStateChanged(true)
+        runCurrent()
+
+        assertEquals(40f, protectionCommand.await().targetVolumeDb)
+        assertFalse(manager.debugState.value.volumeJumpProtectionPending)
+        assertEquals(40f, manager.debugState.value.expectedProgrammaticVolumeDb)
+    }
+
+    @Test
+    fun doesNotCarryJumpProtectionAcrossAnOldDetachedSession() = runTest {
+        var now = 1_000L
+        val manager = VolumeLearningManagerImpl(
+            saveTrackVolumeUseCase = SaveTrackVolumeUseCase(FakeTrackVolumeRepository()),
+            appModeFlow = MutableStateFlow(AppMode.LEARNING),
+            learningTimeSeconds = { 15 },
+            volumeJumpProtectionEnabled = { true },
+            scope = backgroundScope,
+            nowMillis = { now },
+        )
+        runCurrent()
+
+        manager.onHeadsetStateChanged(true)
+        manager.onPlaybackStateChanged(true)
+        val boostCommand = async { manager.volumeCommands.first() }
+        manager.onTrackChanged("Quiet track", "Artist", 9f, VolumeOffsetModel.DECIBEL, snapshot(40, 100), 18)
+        runCurrent()
+        boostCommand.await()
+
+        manager.onVolumeChanged(snapshot(49, 100))
+        manager.onPlaybackStateChanged(false)
+        manager.onSessionDetached()
+        runCurrent()
+
+        now = 32_000L
+        manager.onPlaybackStateChanged(true)
+        manager.onTrackChanged("Much later", "Artist", 0f, VolumeOffsetModel.DECIBEL, snapshot(49, 100), 19)
+        runCurrent()
+
+        assertFalse(manager.debugState.value.volumeJumpProtectionApplied)
+        assertFalse(manager.debugState.value.volumeJumpProtectionPending)
+    }
+
+    @Test
     fun leavesCarriedBoostUntouchedWhenProtectionIsDisabled() = runTest {
         val manager = VolumeLearningManagerImpl(
             saveTrackVolumeUseCase = SaveTrackVolumeUseCase(FakeTrackVolumeRepository()),

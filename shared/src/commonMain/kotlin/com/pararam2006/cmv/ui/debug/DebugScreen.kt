@@ -177,6 +177,10 @@ fun DebugScreen(
                     learning.volumeJumpProtectionApplied.yesNo(),
                 ),
                 DebugRowData(
+                    "Сброс ожидает возобновления воспроизведения",
+                    learning.volumeJumpProtectionPending.yesNo(),
+                ),
+                DebugRowData(
                     "Безопасная целевая громкость (dB gain)",
                     learning.volumeJumpProtectionTargetDb.dbGain(),
                     ABSOLUTE_DB_HINT,

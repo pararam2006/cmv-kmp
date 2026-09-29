@@ -57,6 +57,80 @@ class SystemVolumeSnapshotTest {
     }
 
     @Test
+    fun repeatedDbValuesPreferTheLevelClosestToCurrentVolume() {
+        val repeatedCurve = SystemVolumeSnapshot(
+            currentVolume = 3,
+            maxVolume = 5,
+            isMuted = false,
+            volumeDbByStep = listOf(-80f, -20f, -20f, -20f, -10f, 0f),
+        )
+
+        assertEquals(3, repeatedCurve.nativeVolumeForDb(-20f))
+    }
+
+    @Test
+    fun nonFiniteTargetKeepsCurrentVolumeInsteadOfSelectingAnEdge() {
+        assertEquals(snapshot.currentVolume, snapshot.nativeVolumeForDb(Float.NaN))
+        assertEquals(snapshot.currentVolume, snapshot.nativeVolumeForDb(Float.POSITIVE_INFINITY))
+        assertEquals(snapshot.currentVolume, snapshot.nativeVolumeForDb(Float.NEGATIVE_INFINITY))
+    }
+
+    @Test
+    fun samsungAmplitudeTableMapsSmallDbOffsetsToNearbyFineLevels() {
+        val publicAmplitudes = listOf(0f, 0.007943f, 0.01122f, 0.015849f)
+        val fineAmplitudes = buildList {
+            publicAmplitudes.zipWithNext().forEach { (lower, upper) ->
+                repeat(10) { subdivision ->
+                    add(lower + (upper - lower) * subdivision / 10f)
+                }
+            }
+            add(publicAmplitudes.last())
+        }
+        val curve = amplitudeVolumeCurveToDb(fineAmplitudes)!!
+        val fineSnapshot = SystemVolumeSnapshot(
+            currentVolume = 20,
+            maxVolume = curve.lastIndex,
+            isMuted = false,
+            volumeDbByStep = curve,
+        )
+
+        val louder = fineSnapshot.nativeVolumeForDb(fineSnapshot.currentVolumeDb + 0.5f)
+        val quieter = fineSnapshot.nativeVolumeForDb(fineSnapshot.currentVolumeDb - 0.5f)
+
+        assertEquals(21, louder)
+        assertEquals(18, quieter)
+    }
+
+    @Test
+    fun rejectsInvalidAmplitudeTable() {
+        assertEquals(null, amplitudeVolumeCurveToDb(listOf(0f, 0.5f, 0.4f)))
+        assertEquals(null, amplitudeVolumeCurveToDb(listOf(0f, Float.NaN, 1f)))
+    }
+
+    @Test
+    fun convertsSamsungLinearGainReportedAsDbIntoActualDb() {
+        val normalized = normalizeReportedVolumeDbCurve(
+            listOf(0f, 0.007943f, 0.01122f, 0.015849f, 1f),
+        )
+
+        assertEquals(-200f, normalized[0])
+        assertEquals(-42f, normalized[1], absoluteTolerance = 0.01f)
+        assertEquals(-39f, normalized[2], absoluteTolerance = 0.01f)
+        assertEquals(-36f, normalized[3], absoluteTolerance = 0.01f)
+        assertEquals(0f, normalized[4], absoluteTolerance = 0.01f)
+    }
+
+    @Test
+    fun keepsRealDbCurveUnchanged() {
+        val reportedDb = listOf(Float.NEGATIVE_INFINITY, -42f, -39f, -36f, 1f)
+
+        assertEquals(
+            listOf(-200f, -42f, -39f, -36f, 1f),
+            normalizeReportedVolumeDbCurve(reportedDb),
+        )
+    }
+
+    @Test
     fun convertsLegacyRatioUsingTheProvidedDeviceCurve() {
         // Legacy formula from native base 2 with ratio 1.5 targets native step 4.
         assertEquals(12f, snapshot.legacyRatioToOffsetDb(baseNativeVolume = 2, ratio = 1.5f))
