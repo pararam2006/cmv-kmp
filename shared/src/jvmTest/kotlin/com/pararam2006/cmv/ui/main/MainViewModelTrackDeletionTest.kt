@@ -4,6 +4,7 @@ import androidx.lifecycle.viewModelScope
 import com.pararam2006.cmv.core.Constants
 import com.pararam2006.cmv.core.service.MyNotificationListenerServiceStateHolder
 import com.pararam2006.cmv.domain.model.TrackVolume
+import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.HeadphonesRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
 import com.pararam2006.cmv.domain.usecase.DeleteTrackVolumeUseCase
@@ -37,6 +38,54 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTrackDeletionTest {
+    @Test
+    fun manualRuleCanBeCreatedWithoutSelectAppsScreen() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repository = RecordingTrackRepository(emptyList())
+        val viewModel = createViewModel(repository)
+        val collectorJob = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.mainScreenUiState.collect()
+        }
+
+        try {
+            runCurrent()
+            viewModel.openAddDialog()
+            viewModel.changeEditTitle("Manual track")
+            viewModel.changeEditArtist("Manual artist")
+            viewModel.changeEditOffset(4.5f)
+            runCurrent()
+
+            val draft = assertNotNull(viewModel.mainScreenUiState.value.dialogTrack)
+            assertEquals("Manual track", draft.trackTitle)
+            assertEquals("Manual artist", draft.artistName)
+            assertEquals(4.5f, draft.volumeOffsetDb)
+
+            viewModel.saveTrackVolume(
+                title = draft.trackTitle,
+                artist = draft.artistName,
+                offset = draft.volumeOffsetDb,
+            )
+            runCurrent()
+
+            assertEquals(
+                listOf(
+                    TrackVolume(
+                        trackTitle = "Manual track",
+                        artistName = "Manual artist",
+                        volumeOffsetDb = 4.5f,
+                        offsetModel = VolumeOffsetModel.DECIBEL,
+                    ),
+                ),
+                repository.savedTracks,
+            )
+        } finally {
+            collectorJob.cancel()
+            viewModel.viewModelScope.cancel()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun deletionCompletesWithoutTrackItemBeingComposed() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
@@ -137,6 +186,7 @@ class MainViewModelTrackDeletionTest {
     ) : TrackVolumeRepository {
         private val tracks = MutableStateFlow(initialTracks)
         val deletedIds = mutableListOf<Int>()
+        val savedTracks: List<TrackVolume> get() = tracks.value
 
         override fun getAllTrackVolumes(): Flow<List<TrackVolume>> = tracks
         override suspend fun getTrackVolume(title: String, artist: String?): TrackVolume? =

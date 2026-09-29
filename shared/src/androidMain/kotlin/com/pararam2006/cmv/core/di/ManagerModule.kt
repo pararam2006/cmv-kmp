@@ -27,6 +27,7 @@ val managerModule = module {
             appsInfoRepository = get(),
             trackVolumeRepository = get(),
             volumeLearningManager = get(),
+            syncDiscoveredAppsUseCase = get(),
             scope = get(named("AppScope")),
             logger = { message -> Timber.tag("CMV.PlaybackCoordinator").d(message) },
         )

@@ -179,6 +179,7 @@ val jvmPlatformModule = module {
             appsInfoRepository = get(),
             trackVolumeRepository = get(),
             volumeLearningManager = get(),
+            syncDiscoveredAppsUseCase = get(),
             scope = get(named("AppScope")),
             logger = ::desktopLog,
         )

@@ -27,7 +27,6 @@ fun TrackDialog(
     modifier: Modifier = Modifier,
     initialOffset: Float = 0f,
     isEdit: Boolean = false,
-    enabled: Boolean = true,
     onDismiss: () -> Unit,
     onConfirm: (String, String?, Float) -> Unit,
     onTitleChange: (String) -> Unit,
@@ -66,7 +65,6 @@ fun TrackDialog(
                             text = stringResource(Res.string.main_screen_dialog_track_name_label)
                         )
                     },
-                    enabled = enabled
                 )
 
                 Spacer(modifier = Modifier.height(Dimens.paddingTiny))
@@ -79,7 +77,6 @@ fun TrackDialog(
                             text = stringResource(Res.string.main_screen_dialog_artist_label)
                         )
                     },
-                    enabled = enabled
                 )
 
                 Spacer(modifier = Modifier.height(Dimens.paddingTiny))

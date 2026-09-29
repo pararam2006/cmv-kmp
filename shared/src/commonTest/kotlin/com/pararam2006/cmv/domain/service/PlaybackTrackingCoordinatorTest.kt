@@ -9,11 +9,15 @@ import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
 import com.pararam2006.cmv.domain.model.AppMode
+import com.pararam2006.cmv.domain.usecase.SyncDiscoveredAppsUseCase
+import com.pararam2006.cmv.platform.AppDiscoveryService
 import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,6 +33,7 @@ class PlaybackTrackingCoordinatorTest {
             appsInfoRepository = apps,
             trackVolumeRepository = FakeTrackVolumeRepository(),
             volumeLearningManager = manager,
+            syncDiscoveredAppsUseCase = synchronizer(apps),
             scope = backgroundScope,
         )
 
@@ -52,12 +57,14 @@ class PlaybackTrackingCoordinatorTest {
                 offsetModel = VolumeOffsetModel.DECIBEL,
             ),
         )
+        val apps = FakeAppsInfoRepository(
+            listOf(appInfo("selected.app", selected = true)),
+        )
         val coordinator = PlaybackTrackingCoordinator(
-            appsInfoRepository = FakeAppsInfoRepository(
-                listOf(appInfo("selected.app", selected = true)),
-            ),
+            appsInfoRepository = apps,
             trackVolumeRepository = tracks,
             volumeLearningManager = manager,
+            syncDiscoveredAppsUseCase = synchronizer(apps),
             scope = backgroundScope,
         )
 
@@ -73,12 +80,14 @@ class PlaybackTrackingCoordinatorTest {
     @Test
     fun metadataFromUnselectedAppIsIgnored() = runTest {
         val manager = RecordingManager()
+        val apps = FakeAppsInfoRepository(
+            listOf(appInfo("selected.app", selected = true)),
+        )
         val coordinator = PlaybackTrackingCoordinator(
-            appsInfoRepository = FakeAppsInfoRepository(
-                listOf(appInfo("selected.app", selected = true)),
-            ),
+            appsInfoRepository = apps,
             trackVolumeRepository = FakeTrackVolumeRepository(),
             volumeLearningManager = manager,
+            syncDiscoveredAppsUseCase = synchronizer(apps),
             scope = backgroundScope,
         )
 
@@ -92,12 +101,14 @@ class PlaybackTrackingCoordinatorTest {
     @Test
     fun sameMetadataIsAppliedAgainAfterSessionDetach() = runTest {
         val manager = RecordingManager()
+        val apps = FakeAppsInfoRepository(
+            listOf(appInfo("selected.app", selected = true)),
+        )
         val coordinator = PlaybackTrackingCoordinator(
-            appsInfoRepository = FakeAppsInfoRepository(
-                listOf(appInfo("selected.app", selected = true)),
-            ),
+            appsInfoRepository = apps,
             trackVolumeRepository = FakeTrackVolumeRepository(),
             volumeLearningManager = manager,
+            syncDiscoveredAppsUseCase = synchronizer(apps),
             scope = backgroundScope,
         )
 
@@ -110,6 +121,28 @@ class PlaybackTrackingCoordinatorTest {
 
         assertEquals(2, manager.trackChanges.size)
         assertEquals(1, manager.sessionDetachCount)
+    }
+
+    @Test
+    fun firstMetadataWaitsForAppDiscoveryOnEmptyDatabase() = runTest {
+        val manager = RecordingManager()
+        val apps = FakeAppsInfoRepository(emptyList())
+        val coordinator = PlaybackTrackingCoordinator(
+            appsInfoRepository = apps,
+            trackVolumeRepository = FakeTrackVolumeRepository(),
+            volumeLearningManager = manager,
+            syncDiscoveredAppsUseCase = synchronizer(
+                repository = apps,
+                discoveredApps = listOf(appInfo("selected.app", selected = true)),
+            ),
+            scope = backgroundScope,
+        )
+
+        coordinator.onActiveSessionPackageNameChanged("selected.app")
+        coordinator.onTrackMetadataChanged("First track", "Artist", snapshot(5), true)
+        coordinator.awaitIdle()
+
+        assertEquals(listOf(TrackChange("First track", 0f)), manager.trackChanges)
     }
 
     private fun snapshot(volume: Int, maxVolume: Int = 15): SystemVolumeSnapshot =
@@ -161,7 +194,7 @@ class PlaybackTrackingCoordinatorTest {
 
         override fun getAllAppsInfo(): Flow<List<AppInfo>> = apps
         override fun getAllSelectedAppsInfo(): Flow<List<AppInfo>> =
-            MutableStateFlow(apps.value.filter { it.selected })
+            apps.map { values -> values.filter { it.selected } }
 
         override suspend fun getAppInfo(packageName: String): AppInfo? =
             apps.value.firstOrNull { it.packageName == packageName }
@@ -171,7 +204,11 @@ class PlaybackTrackingCoordinatorTest {
         override suspend fun selectApp(packageName: String) = Unit
         override suspend fun unselectApp(id: Int) = Unit
         override suspend fun unselectApp(packageName: String) = Unit
-        override suspend fun addAppInfo(appInfo: AppInfo) = Unit
+        override suspend fun addAppInfo(appInfo: AppInfo) {
+            apps.update { current ->
+                current.filterNot { it.packageName == appInfo.packageName } + appInfo
+            }
+        }
         override suspend fun deleteAppInfo(appInfo: AppInfo) = Unit
         override suspend fun deleteAppInfo(id: Int) = Unit
     }
@@ -203,5 +240,15 @@ class PlaybackTrackingCoordinatorTest {
         packageName = packageName,
         name = packageName,
         selected = selected,
+    )
+
+    private fun synchronizer(
+        repository: AppsInfoRepository,
+        discoveredApps: List<AppInfo> = emptyList(),
+    ) = SyncDiscoveredAppsUseCase(
+        repository = repository,
+        appDiscoveryService = object : AppDiscoveryService {
+            override suspend fun discoverApps(): List<AppInfo> = discoveredApps
+        },
     )
 }

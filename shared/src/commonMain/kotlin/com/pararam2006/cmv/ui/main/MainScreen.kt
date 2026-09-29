@@ -39,7 +39,6 @@ fun MainScreen(
     onStartDecrementing: () -> Unit,
     onStopDecrementing: () -> Unit,
     onOffsetChange: (Float) -> Unit,
-    manualTrackEntryEnabled: Boolean,
 ) {
     Column(
         modifier = Modifier.screenLayout()
@@ -120,7 +119,6 @@ fun MainScreen(
             onStartDecrementing = onStartDecrementing,
             onStopDecrementing = onStopDecrementing,
             onOffsetChange = onOffsetChange,
-            manualTrackEntryEnabled = manualTrackEntryEnabled,
         )
     }
 }
@@ -145,14 +143,13 @@ private fun MainScreenDialogs(
     onStartDecrementing: () -> Unit,
     onStopDecrementing: () -> Unit,
     onOffsetChange: (Float) -> Unit,
-    manualTrackEntryEnabled: Boolean,
 ) {
     if (uiState.showAddDialog) {
+        val dialogTrack = uiState.dialogTrack
         TrackDialog(
-            initialTitle = uiState.currentPlayingTrack ?: "",
-            initialArtist = uiState.currentPlayingArtist ?: "",
-            initialOffset = uiState.offsetToNewTrack,
-            enabled = manualTrackEntryEnabled,
+            initialTitle = dialogTrack?.trackTitle.orEmpty(),
+            initialArtist = dialogTrack?.artistName.orEmpty(),
+            initialOffset = dialogTrack?.volumeOffsetDb ?: 0f,
             onDismiss = onCloseAddDialog,
             onConfirm = { title, artist, offset ->
                 onSaveTrackVolume(title, artist, offset, 0)

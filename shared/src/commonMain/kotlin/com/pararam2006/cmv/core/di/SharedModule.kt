@@ -9,6 +9,7 @@ import com.pararam2006.cmv.ui.main.MainViewModel
 import com.pararam2006.cmv.ui.selectApps.SelectAppsScreenViewModel
 import com.pararam2006.cmv.ui.settings.SettingsViewModel
 import org.koin.core.module.dsl.factoryOf
+import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
@@ -16,6 +17,7 @@ val useCaseModule = module {
     factoryOf(::GetTrackVolumesUseCase)
     factoryOf(::SaveTrackVolumeUseCase)
     factoryOf(::DeleteTrackVolumeUseCase)
+    singleOf(::SyncDiscoveredAppsUseCase)
 }
 
 val viewModelModule = module {

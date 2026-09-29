@@ -7,6 +7,7 @@ import com.pararam2006.cmv.domain.model.AppInfo
 import com.pararam2006.cmv.domain.model.VolumeOffsetModel
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
 import com.pararam2006.cmv.domain.repository.TrackVolumeRepository
+import com.pararam2006.cmv.domain.usecase.SyncDiscoveredAppsUseCase
 import com.pararam2006.cmv.platform.SystemVolumeSnapshot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +59,7 @@ class PlaybackTrackingCoordinator(
     private val appsInfoRepository: AppsInfoRepository,
     private val trackVolumeRepository: TrackVolumeRepository,
     private val volumeLearningManager: VolumeLearningManager,
+    private val syncDiscoveredAppsUseCase: SyncDiscoveredAppsUseCase,
     scope: CoroutineScope,
     private val logger: (String) -> Unit = {},
 ) {
@@ -71,9 +73,21 @@ class PlaybackTrackingCoordinator(
 
     private var activeSessionPackageName: String? = null
     private var selectedPackages: Set<String>? = null
+    private var initialCatalogSnapshotLoaded = false
     private var trackGeneration: Long = 0
+    private val appsCatalogReady = CompletableDeferred<Unit>()
 
     init {
+        scope.launch {
+            try {
+                syncDiscoveredAppsUseCase()
+            } catch (exception: Exception) {
+                logger("App discovery failed: ${exception.message}")
+            } finally {
+                appsCatalogReady.complete(Unit)
+            }
+        }
+
         scope.launch {
             for (event in events) {
                 try {
@@ -280,8 +294,10 @@ class PlaybackTrackingCoordinator(
     }
 
     private suspend fun ensureSelectedPackagesLoaded() {
-        if (selectedPackages == null) {
+        appsCatalogReady.await()
+        if (!initialCatalogSnapshotLoaded) {
             selectedPackages = selectedApps.first().mapTo(mutableSetOf()) { it.packageName }
+            initialCatalogSnapshotLoaded = true
         }
     }
 

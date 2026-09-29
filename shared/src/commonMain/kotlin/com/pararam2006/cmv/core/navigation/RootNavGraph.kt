@@ -50,6 +50,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -126,9 +127,6 @@ fun RootNavGraph(appVersion: String) {
 
     val searchFieldFocusRequester = remember { FocusRequester() }
     val searchFieldFocusManager = LocalFocusManager.current
-    val isAddButtonEnabled =
-        !listenerUiState.serviceSupported || !mainUiState.currentPlayingTrack.isNullOrEmpty()
-
     val title = when {
         currentDestination?.hasRoute<Route.Main>() == true -> stringResource(Res.string.main_screen_title)
         currentDestination?.hasRoute<Route.Settings>() == true -> stringResource(Res.string.settings_screen_title)
@@ -156,6 +154,7 @@ fun RootNavGraph(appVersion: String) {
                                 text = title,
                                 maxLines = 1,
                                 style = MaterialTheme.typography.headlineMedium,
+                                textAlign = TextAlign.Center,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(bottom = Dimens.paddingSmall)
                             )
@@ -196,7 +195,6 @@ fun RootNavGraph(appVersion: String) {
                             keyboardActionOnDone = {
                                 searchFieldFocusManager.clearFocus()
                             },
-                            isAddButtonEnabled = isAddButtonEnabled
                         )
                     },
                 )
@@ -255,7 +253,6 @@ fun RootNavGraph(appVersion: String) {
                             onStartDecrementing = mainViewModel::startDecrementing,
                             onStopDecrementing = mainViewModel::stopDecrementing,
                             onOffsetChange = mainViewModel::changeEditOffset,
-                            manualTrackEntryEnabled = !listenerUiState.serviceSupported,
                         )
                     }
                     composable<Route.Settings> {
@@ -416,7 +413,6 @@ private fun MyTopAppBarActions(
     searchFieldFocusRequester: FocusRequester,
     keyboardActionOnDone: () -> Unit,
     modifier: Modifier = Modifier,
-    isAddButtonEnabled: Boolean,
 ) {
     Row(
         modifier = modifier.padding(horizontal = Dimens.paddingMedium),
@@ -467,7 +463,7 @@ private fun MyTopAppBarActions(
                 }
             }
 
-            IconButton(onClick = onOpenAddDialog, enabled = isAddButtonEnabled) {
+            IconButton(onClick = onOpenAddDialog) {
                 Icon(
                     painter = painterResource(Res.drawable.outline_add_24),
                     contentDescription = stringResource(Res.string.main_screen_create_volume_by_self_desc)

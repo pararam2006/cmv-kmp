@@ -125,14 +125,23 @@ class MainViewModel(
     }
 
     fun openAddDialog() {
-        _mainScreenUiState.update { it.copy(showAddDialog = true) }
+        _mainScreenUiState.update {
+            it.copy(
+                showAddDialog = true,
+                dialogTrack = TrackVolume(
+                    trackTitle = it.currentPlayingTrack.orEmpty(),
+                    artistName = it.currentPlayingArtist,
+                    volumeOffsetDb = 0f,
+                ),
+            )
+        }
     }
 
     fun closeAddDialog() {
         _mainScreenUiState.update {
             it.copy(
                 showAddDialog = false,
-                offsetToNewTrack = 0f,
+                dialogTrack = null,
             )
         }
     }
@@ -152,8 +161,9 @@ class MainViewModel(
         incrementJob = viewModelScope.launch {
             while (true) {
                 val currentOffset = when {
-                    _mainScreenUiState.value.showAddDialog -> _mainScreenUiState.value.offsetToNewTrack
-                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
+                    _mainScreenUiState.value.showAddDialog ||
+                        _mainScreenUiState.value.showEditDialog ->
+                        _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
                     else -> null
                 }
                 changeEditOffset(offset = (currentOffset ?: 0f) + Constants.DIALOG_OFFSET_STEP)
@@ -174,8 +184,9 @@ class MainViewModel(
         decrementJob = viewModelScope.launch {
             while (true) {
                 val currentOffset = when {
-                    _mainScreenUiState.value.showAddDialog -> _mainScreenUiState.value.offsetToNewTrack
-                    _mainScreenUiState.value.showEditDialog -> _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
+                    _mainScreenUiState.value.showAddDialog ||
+                        _mainScreenUiState.value.showEditDialog ->
+                        _mainScreenUiState.value.dialogTrack?.volumeOffsetDb
                     else -> null
                 }
                 changeEditOffset(offset = (currentOffset ?: 0f) - Constants.DIALOG_OFFSET_STEP)
@@ -199,11 +210,7 @@ class MainViewModel(
     fun changeEditOffset(offset: Float) {
         val boundedOffset = offset.coerceIn(Constants.VOLUME_SLIDER_VALUE_RANGE)
         _mainScreenUiState.update {
-            when {
-                it.showAddDialog -> it.copy(offsetToNewTrack = boundedOffset)
-                it.showEditDialog -> it.copy(dialogTrack = it.dialogTrack?.copy(volumeOffsetDb = boundedOffset))
-                else -> it
-            }
+            it.copy(dialogTrack = it.dialogTrack?.copy(volumeOffsetDb = boundedOffset))
         }
     }
 

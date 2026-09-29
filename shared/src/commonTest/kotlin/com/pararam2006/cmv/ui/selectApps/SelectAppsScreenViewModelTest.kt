@@ -2,6 +2,7 @@ package com.pararam2006.cmv.ui.selectApps
 
 import com.pararam2006.cmv.domain.model.AppInfo
 import com.pararam2006.cmv.domain.repository.AppsInfoRepository
+import com.pararam2006.cmv.domain.usecase.SyncDiscoveredAppsUseCase
 import com.pararam2006.cmv.platform.AppDiscoveryService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -22,13 +23,18 @@ class SelectAppsScreenViewModelTest {
     fun discoveryFailureStopsLoadingAndExposesRetryState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
+            val repository = EmptyAppsRepository()
+            val discoveryService = object : AppDiscoveryService {
+                override suspend fun discoverApps(): List<AppInfo> {
+                    error("discovery failed")
+                }
+            }
             val viewModel = SelectAppsScreenViewModel(
-                repository = EmptyAppsRepository(),
-                appDiscoveryService = object : AppDiscoveryService {
-                    override suspend fun discoverApps(): List<AppInfo> {
-                        error("discovery failed")
-                    }
-                },
+                repository = repository,
+                syncDiscoveredAppsUseCase = SyncDiscoveredAppsUseCase(
+                    repository = repository,
+                    appDiscoveryService = discoveryService,
+                ),
             )
 
             advanceUntilIdle()
